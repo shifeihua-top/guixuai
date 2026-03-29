@@ -1,0 +1,7 @@
+node_modules/
+data/
+test/
+config.yaml
+camoufox/
+.venv-wm/
+.DS_Store
