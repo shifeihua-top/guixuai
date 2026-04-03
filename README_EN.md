@@ -14,6 +14,12 @@ It standardizes heterogeneous web AI capabilities behind one consistent API so a
 - Reliable execution: queueing, retry, and failover mechanisms
 - Web console: configuration, logs, and runtime visibility
 
+## Example Output
+
+Image-edit example: transforming a real-world product photo into a white-background ecommerce front view.
+
+![White background ecommerce front-view example](docs/assets/example-whitebg-ecommerce.png)
+
 ## Quick Start
 
 ### Requirements
