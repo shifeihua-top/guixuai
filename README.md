@@ -71,6 +71,7 @@ Authorization: Bearer <server.auth>
 - [通用 API 指南](docs/UNIVERSAL_API_GUIDE.md)
 - [部署与运维指南](docs/DEPLOYMENT_GUIDE.md)
 - [适配器开发指南](docs/ADAPTER_GUIDE.md)
+- [豆包场景示例](docs/DOUBAO_EXAMPLES.md)
 - [电商场景扩展示例](docs/JD_AUTOMATION.md)
 
 ## 安全建议
