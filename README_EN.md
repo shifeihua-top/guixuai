@@ -1,4 +1,4 @@
-# WebAI2API
+# NexaBridge API
 
 [简体中文](README.md) | English
 
@@ -26,7 +26,7 @@
 
 ## 📝 Project Introduction
 
-**WebAI2API** is a tool that converts web-based AI services into general APIs based on **Camoufox (Playwright)**. It interacts with websites like LMArena and Gemini by simulating human operations, providing interfaces compatible with the **OpenAI format**, while supporting **multi-window concurrency** and **multi-account management** (browser instance data isolation).
+**NexaBridge API** is a tool that converts web-based AI services into general APIs based on **Camoufox (Playwright)**. It interacts with websites like LMArena and Gemini by simulating human operations, providing interfaces compatible with the **OpenAI format**, while supporting **multi-window concurrency** and **multi-account management** (browser instance data isolation).
 
 ### ✨ Key Features
 
@@ -112,11 +112,11 @@ This project supports both **source code execution** and **Docker containerized 
 
 **Start with Docker CLI**
 ```bash
-docker run -d --name webai-2api \
+docker run -d --name nexabridge-api \
   -p 3000:3000 \
   -v "$(pwd)/data:/app/data" \
   --shm-size=2gb \
-  foxhui/webai-2api:latest
+  ghcr.io/your-org/nexabridge-api:latest
 ```
 
 **Start with Docker Compose**
@@ -144,7 +144,7 @@ server:
 ```
 
 > [!TIP]
-> **Full Configuration Details**: Please refer to the detailed comments in [config.example.yaml](config.example.yaml), or visit the [WebAI2API Documentation Center](https://foxhui.github.io/WebAI2API/en/) for a complete configuration guide.
+> **Full Configuration Details**: Please refer to the detailed comments in [config.example.yaml](config.example.yaml), or visit the [NexaBridge API Documentation Center](https://your-org.github.io/nexabridge-api/en/) for a complete configuration guide.
 
 ### 2. Access Web Management Interface
 
@@ -200,7 +200,7 @@ http://localhost:3000
 ## 🔌 API Reference
 
 > [!TIP]
-> **Detailed Documentation**: Please visit the [WebAI2API Documentation Center](https://foxhui.github.io/WebAI2API/en/) for a more comprehensive configuration guide and interface description.
+> **Detailed Documentation**: Please visit the [NexaBridge API Documentation Center](https://your-org.github.io/nexabridge-api/en/) for a more comprehensive configuration guide and interface description.
 
 ### 1. OpenAI Compatible API
 

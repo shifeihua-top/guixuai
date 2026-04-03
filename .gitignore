@@ -5,3 +5,4 @@ config.yaml
 camoufox/
 .venv-wm/
 .DS_Store
+.runtime/

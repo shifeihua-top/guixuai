@@ -1,4 +1,4 @@
-# 豆包 API 调用全量说明（WebtoAPI）
+# 豆包 API 调用全量说明（NexaBridge API）
 
 更新时间：2026-03-29
 
@@ -15,8 +15,8 @@
 - Content-Type：`application/json`
 
 配置位置：
-- [data/config.yaml](/Users/shifeihua/WebtoAPI/data/config.yaml)
-- [config.example.yaml](/Users/shifeihua/WebtoAPI/config.example.yaml)
+- [data/config.yaml](../data/config.yaml)
+- [config.example.yaml](../config.example.yaml)
 
 必须启用的 Worker（豆包）：
 - `type: doubao_text`（文本）
@@ -295,7 +295,7 @@ backend:
   postprocess:
     watermarkRemover:
       enabled: true
-      command: "/Users/shifeihua/WebtoAPI/.venv-wm/bin/watermark-remover"
+      command: "/abs/path/to/.venv-wm/bin/watermark-remover"
       method: "opencv"
       confidence: 0.5
       padding: 6
@@ -308,10 +308,10 @@ backend:
 
 ## 10. 关键实现文件（便于后续维护）
 
-- [src/server/api/openai/routes.js](/Users/shifeihua/WebtoAPI/src/server/api/openai/routes.js)
-- [src/server/api/openai/parse.js](/Users/shifeihua/WebtoAPI/src/server/api/openai/parse.js)
-- [src/server/respond.js](/Users/shifeihua/WebtoAPI/src/server/respond.js)
-- [src/server/errors.js](/Users/shifeihua/WebtoAPI/src/server/errors.js)
-- [src/backend/adapter/doubao_text.js](/Users/shifeihua/WebtoAPI/src/backend/adapter/doubao_text.js)
-- [src/backend/adapter/doubao.js](/Users/shifeihua/WebtoAPI/src/backend/adapter/doubao.js)
-- [src/server/postprocess/watermarkRemover.js](/Users/shifeihua/WebtoAPI/src/server/postprocess/watermarkRemover.js)
+- [src/server/api/openai/routes.js](../src/server/api/openai/routes.js)
+- [src/server/api/openai/parse.js](../src/server/api/openai/parse.js)
+- [src/server/respond.js](../src/server/respond.js)
+- [src/server/errors.js](../src/server/errors.js)
+- [src/backend/adapter/doubao_text.js](../src/backend/adapter/doubao_text.js)
+- [src/backend/adapter/doubao.js](../src/backend/adapter/doubao.js)
+- [src/server/postprocess/watermarkRemover.js](../src/server/postprocess/watermarkRemover.js)

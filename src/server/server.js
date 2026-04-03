@@ -16,6 +16,7 @@
  */
 
 import http from 'http';
+import net from 'net';
 
 // ==================== 启动前自检 ====================
 import { runPreflight } from './preflight.js';
@@ -129,10 +130,44 @@ const handleRequest = createGlobalRouter({
 // ==================== 启动服务器 ====================
 
 /**
+ * 预检查端口是否可用
+ * 目的：避免端口冲突时先初始化浏览器导致重复拉起窗口
+ * @param {number} port
+ * @returns {Promise<void>}
+ */
+async function ensurePortAvailable(port) {
+    await new Promise((resolve, reject) => {
+        const probe = net.createServer();
+
+        probe.once('error', (err) => {
+            reject(err);
+        });
+
+        probe.once('listening', () => {
+            probe.close(() => resolve());
+        });
+
+        probe.listen(port, '::');
+    });
+}
+
+/**
  * 启动 HTTP 服务器
  * @returns {Promise<void>}
  */
 async function startServer() {
+    // 先检查端口，若被占用则快速失败（避免启动浏览器后才失败，导致看门狗反复重启开窗）
+    try {
+        await ensurePortAvailable(PORT);
+    } catch (err) {
+        if (err?.code === 'EADDRINUSE') {
+            logger.error('服务器', `端口 ${PORT} 已被占用，请先停止已有实例后再启动`);
+            process.exit(78); // 配置/运行条件错误，不触发看门狗自动重启
+        }
+        logger.error('服务器', `端口预检查失败: ${err.message}`);
+        process.exit(78);
+    }
+
     // 加载今日统计
     await loadTodayStats();
 
@@ -174,6 +209,16 @@ async function startServer() {
         } else {
             socket.destroy();
         }
+    });
+
+    server.on('error', (err) => {
+        if (err?.code === 'EADDRINUSE') {
+            logger.error('服务器', `端口 ${PORT} 已被占用，请先停止已有实例后再启动`);
+            process.exit(78);
+            return;
+        }
+        logger.error('服务器', `HTTP 服务启动失败: ${err.message}`);
+        process.exit(1);
     });
 
     server.listen(PORT, () => {

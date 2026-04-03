@@ -24,6 +24,31 @@ import path from 'path';
 import { logger } from '../../utils/logger.js';
 import { TIMEOUTS } from '../../utils/constants.js';
 
+const UI_SPEED_FACTOR = (() => {
+    const raw = Number(process.env.WEBTOAPI_UI_SPEED_FACTOR ?? 0.86);
+    if (!Number.isFinite(raw)) return 0.86;
+    return Math.min(1.0, Math.max(0.55, raw));
+})();
+
+const UI_DELAY_CURVE = String(process.env.WEBTOAPI_UI_DELAY_CURVE || 'fast_tail').trim().toLowerCase();
+const UI_ACCEL_PROB = (() => {
+    const raw = Number(process.env.WEBTOAPI_UI_ACCEL_PROB ?? 0.65);
+    if (!Number.isFinite(raw)) return 0.65;
+    return Math.min(1.0, Math.max(0, raw));
+})();
+const UI_ACCEL_MAX_MS = (() => {
+    const raw = Number(process.env.WEBTOAPI_UI_ACCEL_MAX_MS ?? 2200);
+    if (!Number.isFinite(raw)) return 2200;
+    return Math.max(0, Math.floor(raw));
+})();
+const UI_DELAY_JITTER = (() => {
+    const raw = Number(process.env.WEBTOAPI_UI_DELAY_JITTER ?? 0.08);
+    if (!Number.isFinite(raw)) return 0.08;
+    return Math.min(0.3, Math.max(0, raw));
+})();
+
+let _sleepProfileLogged = false;
+
 /**
  * 生成指定范围内的随机数
  * @param {number} min - 最小值
@@ -34,6 +59,20 @@ export function random(min, max) {
     return Math.random() * (max - min) + min;
 }
 
+function nonlinearDelayUnit() {
+    const r = Math.random();
+    switch (UI_DELAY_CURVE) {
+        case 'balanced':
+            return Math.pow(r, 1.35);
+        case 'aggressive':
+            return Math.pow(r, 2.25);
+        case 'fast_tail':
+        default:
+            // 82% 情况快速，18% 保留少量慢尾，避免节奏过于机械
+            return Math.random() < 0.82 ? Math.pow(r, 1.9) : Math.pow(r, 0.85);
+    }
+}
+
 /**
  * 随机休眠一段时间
  * @param {number} min - 最小毫秒数
@@ -41,7 +80,31 @@ export function random(min, max) {
  * @returns {Promise<void>}
  */
 export function sleep(min, max) {
-    return new Promise(r => setTimeout(r, Math.floor(random(min, max))));
+    const low = Number.isFinite(min) ? Number(min) : 0;
+    const high = Number.isFinite(max) ? Number(max) : low;
+    const start = Math.max(0, Math.min(low, high));
+    const end = Math.max(start, Math.max(low, high));
+    const baseDelay = Math.max(0, Math.floor(random(start, end)));
+    const shouldAccelerate = baseDelay <= UI_ACCEL_MAX_MS && Math.random() < UI_ACCEL_PROB;
+    let finalDelay = baseDelay;
+
+    if (shouldAccelerate) {
+        const unit = nonlinearDelayUnit();
+        // 非线性加速系数：部分节点明显加速，部分节点接近原速；始终不超过原速。
+        const factor = UI_SPEED_FACTOR + (1 - UI_SPEED_FACTOR) * unit;
+        const jitterDown = 1 - random(0, UI_DELAY_JITTER);
+        const accelerated = Math.floor(baseDelay * Math.min(1, factor * jitterDown));
+        finalDelay = Math.max(0, Math.min(baseDelay, accelerated));
+    }
+
+    if (!_sleepProfileLogged) {
+        _sleepProfileLogged = true;
+        logger.info(
+            '浏览器',
+            `交互延迟加速策略: factor=${UI_SPEED_FACTOR}, curve=${UI_DELAY_CURVE}, prob=${UI_ACCEL_PROB}, maxMs=${UI_ACCEL_MAX_MS}, jitter=${UI_DELAY_JITTER}`
+        );
+    }
+    return new Promise(r => setTimeout(r, finalDelay));
 }
 
 /**

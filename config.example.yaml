@@ -41,6 +41,9 @@ backend:
     # ========================================
     # 程序等待生成结果返回的最大超时时间，单位毫秒
     waitTimeout: 120000
+    # 适配器保活轮询 tick（毫秒）
+    # 仅用于支持 keepAlive 的适配器（例如 jd），默认 60000
+    keepAliveTickMs: 60000
 
     # ========================================
     # 浏览器实例列表
@@ -81,6 +84,7 @@ backend:
             #   deepseek_text          (DeepSeek 文本生成)
             #   doubao                 (豆包 图片生成)
             #   doubao_text            (豆包 文本生成)
+            #   jd                     (京东商品详情采集)
             #   test                   (浏览器检测，仅供调试使用)
             type: lmarena              # 适配器类型
 
@@ -144,6 +148,32 @@ backend:
       #    - gemini-3-pro-image-preview
       #    - gemini-3-pro-image-preview-2k
       #    - gemini-2.5-flash-image-preview
+    # 京东商品详情采集（需先通过 -login 完成账号登录）
+    jd:
+      concentratedMode:
+        # 集中模式：同进程串行执行采集任务，降低并发行为特征
+        enabled: true
+      rateLimit:
+        # 控制采集频率：两次采集之间至少间隔（毫秒）
+        minIntervalMs: 6000
+        # 在最小间隔基础上增加随机抖动（毫秒）
+        jitterMs: 2000
+      keepAlive:
+        # 是否启用定时保活（仅在 Worker 空闲时执行）
+        enabled: false
+        # 保活间隔（毫秒）
+        intervalMs: 900000
+        # 每次保活增加随机抖动（毫秒）
+        jitterMs: 60000
+        # 保活访问地址
+        targetUrl: "https://www.jd.com/"
+      collect:
+        # 详情页滚动轮数（用于触发懒加载详情图）
+        detailScrollRounds: 10
+        # 详情图最大返回数量
+        detailImageLimit: 80
+        # 主图最大返回数量
+        mainImageLimit: 10
 
   # ========================================
   # 图片后处理配置 (可选)

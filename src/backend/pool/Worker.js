@@ -40,6 +40,10 @@ export class Worker {
         this._isBrowserOwner = false;  // 是否是浏览器的所有者（负责重启）
         this._browserOwner = null;     // 如果是共享者，指向所有者 Worker
         this._sharedWorkers = [];      // 如果是所有者，保存共享该浏览器的 Worker 列表
+
+        // 适配器保活调度
+        this._keepAliveTimer = null;
+        this._keepAliveRunning = false;
     }
 
     /**
@@ -105,6 +109,93 @@ export class Worker {
         }
 
         this.initialized = true;
+
+        // 非登录模式下启用适配器保活调度（例如 jd 会话保活）
+        if (!isLoginMode) {
+            this._startKeepAliveTicker();
+        }
+    }
+
+    /**
+     * 获取当前 Worker 涉及的适配器列表
+     * @private
+     * @returns {{type: string, adapter: object}[]}
+     */
+    _getRuntimeAdapters() {
+        const adapterTypes = this.type === 'merge' ? this.mergeTypes : [this.type];
+        const adapters = [];
+        for (const type of adapterTypes) {
+            const adapter = registry.getAdapter(type);
+            if (adapter) {
+                adapters.push({ type, adapter });
+            }
+        }
+        return adapters;
+    }
+
+    /**
+     * 启动保活轮询（1分钟 tick，具体是否执行由适配器 keepAlive 自行判断）
+     * @private
+     */
+    _startKeepAliveTicker() {
+        if (this._keepAliveTimer) return;
+
+        const adapters = this._getRuntimeAdapters().filter(({ adapter }) => typeof adapter.keepAlive === 'function');
+        if (adapters.length === 0) return;
+
+        const tickMs = Math.max(30_000, Number(this.globalConfig?.backend?.pool?.keepAliveTickMs || 60_000));
+
+        this._keepAliveTimer = setInterval(() => {
+            this._runKeepAliveTick().catch((e) => {
+                logger.debug('工作池', `[${this.name}] 保活轮询异常: ${e.message}`);
+            });
+        }, tickMs);
+
+        if (typeof this._keepAliveTimer.unref === 'function') {
+            this._keepAliveTimer.unref();
+        }
+
+        logger.debug('工作池', `[${this.name}] 已启用适配器保活轮询 (tick=${tickMs}ms)`);
+    }
+
+    /**
+     * 执行一次保活轮询
+     * @private
+     */
+    async _runKeepAliveTick() {
+        if (this._keepAliveRunning) return;
+        if (!this.initialized || !this.page || this.page.isClosed?.()) return;
+        if (this.busyCount > 0) return;
+
+        const adapters = this._getRuntimeAdapters().filter(({ adapter }) => typeof adapter.keepAlive === 'function');
+        if (adapters.length === 0) return;
+
+        this._keepAliveRunning = true;
+        try {
+            for (const { type, adapter } of adapters) {
+                // 如果中途有任务进来，立即终止本轮保活
+                if (this.busyCount > 0) break;
+                if (!this.initialized || !this.page || this.page.isClosed?.()) break;
+
+                const keepAliveContext = {
+                    page: this.page,
+                    config: this.globalConfig,
+                    proxyConfig: this.proxyConfig,
+                    userDataDir: this.userDataDir
+                };
+
+                try {
+                    await adapter.keepAlive(keepAliveContext, {
+                        worker: this.name,
+                        adapter: type
+                    });
+                } catch (e) {
+                    logger.debug('工作池', `[${this.name}] ${type} keepAlive 失败: ${e.message}`);
+                }
+            }
+        } finally {
+            this._keepAliveRunning = false;
+        }
     }
 
     /**

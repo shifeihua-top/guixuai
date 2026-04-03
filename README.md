@@ -1,4 +1,4 @@
-# WebAI2API
+# NexaBridge API
 
 简体中文 | [English](README_EN.md)
 
@@ -23,7 +23,7 @@
 
 ## 📝 项目简介
 
-**WebAI2API** 是一个基于 **Camoufox (Playwright)** 的网页版 AI 服务转通用 API 的工具。通过模拟人类操作与 LMArena、Gemini 等网站交互, 提供兼容 **OpenAI 格式** 的接口服务, 同时支持 **多窗口并发** 与 **多账号管理**(浏览器实例数据隔离)。
+**NexaBridge API** 是一个基于 **Camoufox (Playwright)** 的网页版 AI 服务转通用 API 的工具。通过模拟人类操作与 LMArena、Gemini 等网站交互, 提供兼容 **OpenAI 格式** 的接口服务, 同时支持 **多窗口并发** 与 **多账号管理**(浏览器实例数据隔离)。
 
 ### ✨ 主要特性
 
@@ -54,6 +54,9 @@
 > **获取完整模型列表**: 通过 `GET /v1/models` 接口查看当前配置下所有可用模型及其详细信息。
 > 
 > ✅目前支持；❌目前不支持，但未来可能会支持；🚫网站不支持, 未来是否在支持看网站具体情况；💧结果带水印且无法去除；
+
+> [!TIP]
+> 京东商品详情采集方案与调用示例见 [docs/JD_AUTOMATION.md](docs/JD_AUTOMATION.md)。
 
 ---
 
@@ -109,11 +112,11 @@
 
 **Docker CLI 启动**
 ```bash
-docker run -d --name webai-2api \
+docker run -d --name nexabridge-api \
   -p 3000:3000 \
   -v "$(pwd)/data:/app/data" \
   --shm-size=2gb \
-  foxhui/webai-2api:latest
+  ghcr.io/your-org/nexabridge-api:latest
 ```
 
 **Docker Compose 启动**
@@ -141,7 +144,7 @@ server:
 ```
 
 > [!TIP]
-> **完整配置说明**: 请参考 [config.example.yaml](config.example.yaml) 文件中的详细注释,或访问 [WebAI2API 文档中心](https://foxhui.github.io/WebAI2API/) 查看完整配置指南。
+> **完整配置说明**: 请参考 [config.example.yaml](config.example.yaml) 文件中的详细注释,或访问 [NexaBridge API 文档中心](https://your-org.github.io/nexabridge-api/) 查看完整配置指南。
 
 ### 2. 访问 Web 管理界面
 
@@ -228,7 +231,7 @@ backend:
 ## 🔌 API 接口
 
 > [!TIP]
-> **详细文档**: 请访问 [WebAI2API 文档中心](https://foxhui.github.io/WebAI2API/) 获取更全面的配置指南与接口说明。
+> **详细文档**: 请访问 [NexaBridge API 文档中心](https://your-org.github.io/nexabridge-api/) 获取更全面的配置指南与接口说明。
 
 ### 1. OpenAI 兼容接口
 

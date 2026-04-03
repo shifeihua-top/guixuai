@@ -1,9 +1,9 @@
 {
-	"name": "webai-2api",
+	"name": "nexabridge-api",
 	"version": "3.0.0",
 	"description": "基于 Playwright + Camoufox 的自动化图像生成工具",
 	"license": "MIT",
-	"author": "foxhui",
+	"author": "NexaBridge API Contributors",
 	"type": "module",
 	"scripts": {
 		"start": "node supervisor.js",

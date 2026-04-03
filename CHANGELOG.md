@@ -312,7 +312,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🔄 Changed
 - **项目名称更新**
-  - 因支持的功能越来越多，决定为项目改名为 WebAI2API
+  - 因支持的功能越来越多，决定为项目改名为 NexaBridge API
 
 ## [3.0.1] - 2025-12-16
 

@@ -1,7 +1,7 @@
 services:
-  webai-2api:
-    image: foxhui/webai-2api:latest
-    container_name: webai-2api
+  nexabridge-api:
+    image: ghcr.io/your-org/nexabridge-api:latest
+    container_name: nexabridge-api
     restart: unless-stopped
     ports:
       - "3000:3000"  # API + WebUI
