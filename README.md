@@ -1,4 +1,4 @@
-# NexaBridge API
+# VoidHub (GuiXuAI / 万智归墟)
 
 简体中文 | [English](README_EN.md)
 
@@ -17,13 +17,14 @@
 - [快速开始](#-快速开始)
 - [使用方法](#-使用方法)
 - [API 接口](#-api-接口)
+- [文档导航](#-文档导航)
 - [设备配置参考](#-设备配置参考)
 
 ---
 
 ## 📝 项目简介
 
-**NexaBridge API** 是一个基于 **Camoufox (Playwright)** 的网页版 AI 服务转通用 API 的工具。通过模拟人类操作与 LMArena、Gemini 等网站交互, 提供兼容 **OpenAI 格式** 的接口服务, 同时支持 **多窗口并发** 与 **多账号管理**(浏览器实例数据隔离)。
+**VoidHub (GuiXuAI / 万智归墟)** 是一个基于 **Camoufox (Playwright)** 的网页版 AI 服务转通用 API 的工具。通过模拟人类操作与 LMArena、Gemini 等网站交互, 提供兼容 **OpenAI 格式** 的接口服务, 同时支持 **多窗口并发** 与 **多账号管理**(浏览器实例数据隔离)。
 
 ### ✨ 主要特性
 
@@ -47,7 +48,6 @@
 | [**DeepSeek**](https://chat.deepseek.com/) | ✅ | 🚫 | 🚫 | 
 | [**Sora**](https://sora.chatgpt.com/) | 🚫 | 🚫 | ✅💧 | 
 | [**Google Flow**](https://labs.google/fx/zh/tools/flow) | 🚫 | ✅ | ❌ | 
-| [**豆包**](https://www.doubao.com/) | ✅ | ✅ | ❌ | 
 | 待续... | - | - | - | 
 
 > [!NOTE]
@@ -57,6 +57,13 @@
 
 > [!TIP]
 > 京东商品详情采集方案与调用示例见 [docs/JD_AUTOMATION.md](docs/JD_AUTOMATION.md)。
+
+## 📚 文档导航
+
+- [文档总览](docs/README.md)
+- [通用 API 指南](docs/UNIVERSAL_API_GUIDE.md)
+- [部署与运维指南](docs/DEPLOYMENT_GUIDE.md)
+- [适配器开发指南](docs/ADAPTER_GUIDE.md)
 
 ---
 
@@ -112,11 +119,11 @@
 
 **Docker CLI 启动**
 ```bash
-docker run -d --name nexabridge-api \
+docker run -d --name guixuai \
   -p 3000:3000 \
   -v "$(pwd)/data:/app/data" \
   --shm-size=2gb \
-  ghcr.io/your-org/nexabridge-api:latest
+  ghcr.io/your-org/guixuai:latest
 ```
 
 **Docker Compose 启动**
@@ -144,7 +151,7 @@ server:
 ```
 
 > [!TIP]
-> **完整配置说明**: 请参考 [config.example.yaml](config.example.yaml) 文件中的详细注释,或访问 [NexaBridge API 文档中心](https://your-org.github.io/nexabridge-api/) 查看完整配置指南。
+> **完整配置说明**: 请参考 [config.example.yaml](config.example.yaml) 文件中的详细注释,或访问 [VoidHub (GuiXuAI / 万智归墟) 文档中心](https://your-org.github.io/guixuai/) 查看完整配置指南。
 
 ### 2. 访问 Web 管理界面
 
@@ -231,7 +238,7 @@ backend:
 ## 🔌 API 接口
 
 > [!TIP]
-> **详细文档**: 请访问 [NexaBridge API 文档中心](https://your-org.github.io/nexabridge-api/) 获取更全面的配置指南与接口说明。
+> **详细文档**: 请访问 [VoidHub (GuiXuAI / 万智归墟) 文档中心](https://your-org.github.io/guixuai/) 获取更全面的配置指南与接口说明。
 
 ### 1. OpenAI 兼容接口
 

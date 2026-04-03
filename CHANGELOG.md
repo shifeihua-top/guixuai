@@ -312,7 +312,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🔄 Changed
 - **项目名称更新**
-  - 因支持的功能越来越多，决定为项目改名为 NexaBridge API
+  - 因支持的功能越来越多，决定为项目改名为 VoidHub (GuiXuAI / 万智归墟)
 
 ## [3.0.1] - 2025-12-16
 

@@ -1,4 +1,4 @@
-# NexaBridge API
+# VoidHub (GuiXuAI / 万智归墟)
 
 [简体中文](README.md) | English
 
@@ -20,13 +20,14 @@
 - [Quick Start](#-quick-start)
 - [Usage](#-usage)
 - [API Reference](#-api-reference)
+- [Documentation](#-documentation)
 - [Hardware Configuration Reference](#-hardware-configuration-reference)
 
 ---
 
 ## 📝 Project Introduction
 
-**NexaBridge API** is a tool that converts web-based AI services into general APIs based on **Camoufox (Playwright)**. It interacts with websites like LMArena and Gemini by simulating human operations, providing interfaces compatible with the **OpenAI format**, while supporting **multi-window concurrency** and **multi-account management** (browser instance data isolation).
+**VoidHub (GuiXuAI / 万智归墟)** is a tool that converts web-based AI services into general APIs based on **Camoufox (Playwright)**. It interacts with websites like LMArena and Gemini by simulating human operations, providing interfaces compatible with the **OpenAI format**, while supporting **multi-window concurrency** and **multi-account management** (browser instance data isolation).
 
 ### ✨ Key Features
 
@@ -50,13 +51,19 @@
 | [**DeepSeek**](https://chat.deepseek.com/) | ✅ | 🚫 | 🚫 | 
 | [**Sora**](https://sora.chatgpt.com/) | 🚫 | 🚫 | ✅💧 | 
 | [**Google Flow**](https://labs.google/fx/zh/tools/flow) | 🚫 | ✅ | ❌ | 
-| [**Doubao**](https://www.doubao.com/) | ✅ | ✅ | ❌ | 
 | To be continued... | - | - | - | 
 
 > [!NOTE]
 > **Get full model list**: Use the `GET /v1/models` endpoint to view all available models and their details under the current configuration.
 > 
 > ✅ Supported; ❌ Not currently supported, but may be in the future; 🚫 Website does not support, future support depends on the website's status; 💧 Results contain watermarks that cannot be removed.
+
+## 📚 Documentation
+
+- [Docs Overview](docs/README.md)
+- [Universal API Guide](docs/UNIVERSAL_API_GUIDE.md)
+- [Deployment & Operations Guide](docs/DEPLOYMENT_GUIDE.md)
+- [Adapter Development Guide](docs/ADAPTER_GUIDE.md)
 
 ---
 
@@ -112,11 +119,11 @@ This project supports both **source code execution** and **Docker containerized 
 
 **Start with Docker CLI**
 ```bash
-docker run -d --name nexabridge-api \
+docker run -d --name guixuai \
   -p 3000:3000 \
   -v "$(pwd)/data:/app/data" \
   --shm-size=2gb \
-  ghcr.io/your-org/nexabridge-api:latest
+  ghcr.io/your-org/guixuai:latest
 ```
 
 **Start with Docker Compose**
@@ -144,7 +151,7 @@ server:
 ```
 
 > [!TIP]
-> **Full Configuration Details**: Please refer to the detailed comments in [config.example.yaml](config.example.yaml), or visit the [NexaBridge API Documentation Center](https://your-org.github.io/nexabridge-api/en/) for a complete configuration guide.
+> **Full Configuration Details**: Please refer to the detailed comments in [config.example.yaml](config.example.yaml), or visit the [VoidHub (GuiXuAI / 万智归墟) Documentation Center](https://your-org.github.io/guixuai/en/) for a complete configuration guide.
 
 ### 2. Access Web Management Interface
 
@@ -200,7 +207,7 @@ http://localhost:3000
 ## 🔌 API Reference
 
 > [!TIP]
-> **Detailed Documentation**: Please visit the [NexaBridge API Documentation Center](https://your-org.github.io/nexabridge-api/en/) for a more comprehensive configuration guide and interface description.
+> **Detailed Documentation**: Please visit the [VoidHub (GuiXuAI / 万智归墟) Documentation Center](https://your-org.github.io/guixuai/en/) for a more comprehensive configuration guide and interface description.
 
 ### 1. OpenAI Compatible API
 

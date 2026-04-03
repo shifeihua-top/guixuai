@@ -403,7 +403,7 @@ onMounted(async () => {
           <template #icon><MenuOutlined /></template>
         </a-button>
         <div class="logo" :style="{ fontSize: '1.25rem', fontWeight: 'bold', color: '#1890ff', marginRight: isMobile ? '8px' : '24px' }">
-          NexaBridge API
+          VoidHub (GuiXuAI / 万智归墟)
         </div>
         <a-flex justify="end" align="center" style="flex: 1;" :gap="8">
           <a-button @click="openApiTestDrawer" :size="isMobile ? 'small' : 'middle'">
@@ -469,7 +469,7 @@ onMounted(async () => {
             <a-card :bordered="false"
               :bodyStyle="{ padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }">
               <div>
-                <a href="https://github.com/your-org/nexabridge-api" target="_blank" style="color: #8c8c8c; font-size: 20px;">
+                <a href="https://github.com/your-org/guixuai" target="_blank" style="color: #8c8c8c; font-size: 20px;">
                   <GithubOutlined />
                 </a>
               </div>

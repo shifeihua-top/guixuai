@@ -1,7 +1,7 @@
 services:
-  nexabridge-api:
-    image: ghcr.io/your-org/nexabridge-api:latest
-    container_name: nexabridge-api
+  guixuai:
+    image: ghcr.io/your-org/guixuai:latest
+    container_name: guixuai
     restart: unless-stopped
     ports:
       - "3000:3000"  # API + WebUI
