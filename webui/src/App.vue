@@ -469,7 +469,7 @@ onMounted(async () => {
             <a-card :bordered="false"
               :bodyStyle="{ padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }">
               <div>
-                <a href="https://github.com/your-org/guixuai" target="_blank" style="color: #8c8c8c; font-size: 20px;">
+                <a href="https://github.com/shifeihua-top/voidhub" target="_blank" style="color: #8c8c8c; font-size: 20px;">
                   <GithubOutlined />
                 </a>
               </div>

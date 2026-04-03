@@ -1,6 +1,6 @@
 services:
   guixuai:
-    image: ghcr.io/your-org/guixuai:latest
+    image: ghcr.io/shifeihua-top/voidhub:latest
     container_name: guixuai
     restart: unless-stopped
     ports:

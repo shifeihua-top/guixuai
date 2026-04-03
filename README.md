@@ -123,7 +123,7 @@ docker run -d --name guixuai \
   -p 3000:3000 \
   -v "$(pwd)/data:/app/data" \
   --shm-size=2gb \
-  ghcr.io/your-org/guixuai:latest
+  ghcr.io/shifeihua-top/voidhub:latest
 ```
 
 **Docker Compose 启动**
@@ -151,7 +151,7 @@ server:
 ```
 
 > [!TIP]
-> **完整配置说明**: 请参考 [config.example.yaml](config.example.yaml) 文件中的详细注释,或访问 [VoidHub (GuiXuAI / 万智归墟) 文档中心](https://your-org.github.io/guixuai/) 查看完整配置指南。
+> **完整配置说明**: 请参考 [config.example.yaml](config.example.yaml) 文件中的详细注释,或访问 [VoidHub (GuiXuAI / 万智归墟) 文档中心](https://shifeihua-top.github.io/voidhub/) 查看完整配置指南。
 
 ### 2. 访问 Web 管理界面
 
@@ -238,7 +238,7 @@ backend:
 ## 🔌 API 接口
 
 > [!TIP]
-> **详细文档**: 请访问 [VoidHub (GuiXuAI / 万智归墟) 文档中心](https://your-org.github.io/guixuai/) 获取更全面的配置指南与接口说明。
+> **详细文档**: 请访问 [VoidHub (GuiXuAI / 万智归墟) 文档中心](https://shifeihua-top.github.io/voidhub/) 获取更全面的配置指南与接口说明。
 
 ### 1. OpenAI 兼容接口
 

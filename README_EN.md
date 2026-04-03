@@ -123,7 +123,7 @@ docker run -d --name guixuai \
   -p 3000:3000 \
   -v "$(pwd)/data:/app/data" \
   --shm-size=2gb \
-  ghcr.io/your-org/guixuai:latest
+  ghcr.io/shifeihua-top/voidhub:latest
 ```
 
 **Start with Docker Compose**
@@ -151,7 +151,7 @@ server:
 ```
 
 > [!TIP]
-> **Full Configuration Details**: Please refer to the detailed comments in [config.example.yaml](config.example.yaml), or visit the [VoidHub (GuiXuAI / 万智归墟) Documentation Center](https://your-org.github.io/guixuai/en/) for a complete configuration guide.
+> **Full Configuration Details**: Please refer to the detailed comments in [config.example.yaml](config.example.yaml), or visit the [VoidHub (GuiXuAI / 万智归墟) Documentation Center](https://shifeihua-top.github.io/voidhub/en/) for a complete configuration guide.
 
 ### 2. Access Web Management Interface
 
@@ -207,7 +207,7 @@ http://localhost:3000
 ## 🔌 API Reference
 
 > [!TIP]
-> **Detailed Documentation**: Please visit the [VoidHub (GuiXuAI / 万智归墟) Documentation Center](https://your-org.github.io/guixuai/en/) for a more comprehensive configuration guide and interface description.
+> **Detailed Documentation**: Please visit the [VoidHub (GuiXuAI / 万智归墟) Documentation Center](https://shifeihua-top.github.io/voidhub/en/) for a more comprehensive configuration guide and interface description.
 
 ### 1. OpenAI Compatible API
 
