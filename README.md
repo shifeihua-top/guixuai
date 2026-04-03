@@ -77,6 +77,7 @@ docker-compose up -d
 - `GET /v1/models`：获取可用模型
 - `POST /v1/chat/completions`：统一推理与生成入口
 - `GET /v1/cookies`：排查会话状态
+- `npm run mcp:start`：启动 MCP Server（stdio）
 
 请求鉴权：
 
@@ -84,13 +85,24 @@ docker-compose up -d
 Authorization: Bearer <server.auth>
 ```
 
+## MCP 快速接入
+
+项目内置 MCP Server，可用于 OpenClaw / 通用 MCP 客户端：
+
+```bash
+VOIDHUB_BASE_URL=http://127.0.0.1:3000 \
+VOIDHUB_API_TOKEN=sk-your-token \
+npm run mcp:start
+```
+
 ## 文档导航
 
 - [文档总览](docs/README.md)
 - [通用 API 指南](docs/UNIVERSAL_API_GUIDE.md)
+- [MCP 接入指南](docs/MCP_GUIDE.md)
 - [部署与运维指南](docs/DEPLOYMENT_GUIDE.md)
 - [适配器开发指南](docs/ADAPTER_GUIDE.md)
-- [豆包场景示例](docs/DOUBAO_EXAMPLES.md)
+- [dou包场景示例](docs/DOUBAO_EXAMPLES.md)
 - [电商场景扩展示例](docs/JD_AUTOMATION.md)
 
 ## 安全建议

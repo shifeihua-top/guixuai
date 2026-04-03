@@ -70,7 +70,79 @@ node scripts/mcp/server.mjs
 - 图像任务优先用 `voidhub_image_edit`
 - 若会话异常，用 `voidhub_get_cookies` 排查
 
-## 6. 常见问题
+## 6. MCP 工具调用示例
+
+以下为 MCP 客户端中常见的 `tools/call` 参数示例（`name` + `arguments`）：
+
+### 6.1 获取模型
+
+```json
+{
+  "name": "voidhub_list_models",
+  "arguments": {}
+}
+```
+
+### 6.2 文本生成（prompt 简写）
+
+```json
+{
+  "name": "voidhub_chat_completion",
+  "arguments": {
+    "model": "seed-thinking",
+    "prompt": "用三点总结这个网关的价值",
+    "stream": false
+  }
+}
+```
+
+### 6.3 多模态消息（messages 完整结构）
+
+```json
+{
+  "name": "voidhub_chat_completion",
+  "arguments": {
+    "model": "seedream-4.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "改成白底电商主图，主体居中" },
+          { "type": "image_url", "image_url": { "url": "data:image/jpeg;base64,你的Base64" } }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### 6.4 本地图生图（MCP 自动读图）
+
+```json
+{
+  "name": "voidhub_image_edit",
+  "arguments": {
+    "model": "seedream-4.5",
+    "prompt": "保留主体，改为纯白背景",
+    "image_path": "./input.jpg",
+    "output_path": "./data/test_outputs/mcp_result.jpg"
+  }
+}
+```
+
+### 6.5 Cookie 排查
+
+```json
+{
+  "name": "voidhub_get_cookies",
+  "arguments": {
+    "name": "browser_default",
+    "domain": "jd.com"
+  }
+}
+```
+
+## 7. 常见问题
 
 - 报错 `VOIDHUB_API_TOKEN is required`
   - 未配置 `VOIDHUB_API_TOKEN`

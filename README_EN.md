@@ -78,6 +78,7 @@ docker-compose up -d
 - `GET /v1/models`: list available models
 - `POST /v1/chat/completions`: unified inference/generation entry
 - `GET /v1/cookies`: inspect session state
+- `npm run mcp:start`: run MCP Server (stdio)
 
 Auth header:
 
@@ -85,13 +86,24 @@ Auth header:
 Authorization: Bearer <server.auth>
 ```
 
+## MCP Quick Start
+
+The project includes a built-in MCP Server for OpenClaw / generic MCP clients:
+
+```bash
+VOIDHUB_BASE_URL=http://127.0.0.1:3000 \
+VOIDHUB_API_TOKEN=sk-your-token \
+npm run mcp:start
+```
+
 ## Documentation
 
 - [Docs Overview](docs/README.md)
 - [Universal API Guide](docs/UNIVERSAL_API_GUIDE.md)
+- [MCP Integration Guide](docs/MCP_GUIDE.md)
 - [Deployment & Operations Guide](docs/DEPLOYMENT_GUIDE.md)
 - [Adapter Development Guide](docs/ADAPTER_GUIDE.md)
-- [Doubao Scenario Examples](docs/DOUBAO_EXAMPLES.md)
+- [doubao Scenario Examples](docs/DOUBAO_EXAMPLES.md)
 - [E-commerce Scenario Extension](docs/JD_AUTOMATION.md)
 
 ## Security Notes
