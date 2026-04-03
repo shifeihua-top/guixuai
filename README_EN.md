@@ -18,7 +18,20 @@ It standardizes heterogeneous web AI capabilities behind one consistent API so a
 
 Image-edit example: transforming a real-world product photo into a white-background ecommerce front view.
 
+### Before / After
+
+Original image (in-scene photo)  
+![Original image](docs/assets/example-original.jpg)
+
+Processed result (white-background ecommerce front view)  
 ![White background ecommerce front-view example](docs/assets/example-whitebg-ecommerce.png)
+
+### Process Notes
+
+1. Input image: use the real-world scene photo as the reference.  
+2. Prompt constraints: remove background, pure white backdrop, centered front view, preserve material details.  
+3. Image editing: run an image-edit/img2img pass with the configured model.  
+4. Result validation: output is suitable as an ecommerce main image with clutter removed.
 
 ## Quick Start
 
