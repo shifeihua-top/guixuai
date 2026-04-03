@@ -7,6 +7,7 @@
 - `UNIVERSAL_API_GUIDE.md`：OpenAI 兼容接口与调用规范
 - `DEPLOYMENT_GUIDE.md`：本地与 Docker 部署、环境建议、安全建议
 - `ADAPTER_GUIDE.md`：适配器能力模型、开发约定、测试清单
+- `MCP_GUIDE.md`：MCP 封装与客户端接入说明
 - `DOUBAO_EXAMPLES.md`：豆包文本与图片生成示例（可选场景）
 - `JD_AUTOMATION.md`：电商页面抓取的扩展示例（可选场景）
 
