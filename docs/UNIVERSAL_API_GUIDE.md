@@ -128,6 +128,8 @@ curl -sS http://127.0.0.1:3000/v1/chat/completions \
   -d "{
     \"model\": \"seedream-4.5\",
     \"stream\": false,
+    \"ratio\": \"1:1\",
+    \"quality\": \"high\",
     \"messages\": [
       {
         \"role\": \"user\",
@@ -144,6 +146,7 @@ curl -sS http://127.0.0.1:3000/v1/chat/completions \
 
 - 结果通常在 `choices[0].message.content`
 - 可能是文本、URL 或 `data:image/...;base64,...`
+- 可选传入 `ratio`、`quality` 作为统一生成参数提示（由网关映射到生图请求）
 
 ### 4.5 查询指定实例 Cookie
 
@@ -412,3 +415,10 @@ curl -i -sS http://127.0.0.1:3000/v1/models
 - 生产建议优先使用流式，降低长任务超时风险
 - 多账号场景建议实例隔离，避免会话污染
 - 对外暴露时务必启用 HTTPS 或隧道
+
+## 9. 新增能力说明（2026-04-05）
+
+- 登录初始化：支持 WebUI 首次引导设置管理员账号与 Token
+- OpenClaw 接入：支持 MCP 一键复制配置与 Skill 安装说明复制
+- 多 Token：支持并行 token、主 token 选择与兼容旧配置
+- 日志审计：支持按 token 查询历史、按 token 统计摘要与 token 维度调用排行

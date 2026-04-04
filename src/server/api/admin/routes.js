@@ -15,6 +15,8 @@ import {
 import {
     getServerConfig,
     saveServerConfig,
+    getAuthModeConfig,
+    getAdminAuthConfig,
     getBrowserConfig,
     saveBrowserConfig,
     getQueueConfig,
@@ -26,6 +28,11 @@ import {
     getPoolConfig,
     savePoolConfig
 } from '../../../config/manager.js';
+import {
+    hashAdminPassword,
+    verifyAdminPassword,
+    generateApiToken
+} from '../../auth/adminCredential.js';
 import {
     validateServerConfig,
     validateBrowserConfig,
@@ -44,6 +51,7 @@ import {
     retryMediaDownload,
     getStats as getHistoryStats,
     getModelList as getHistoryModelList,
+    getTokenList as getHistoryTokenList,
     getMediaDir
 } from '../../../utils/history.js';
 import path from 'path';
@@ -75,6 +83,10 @@ async function readBody(req) {
 export function createAdminRouter(context) {
     const { config, queueManager, tempDir, getSafeMode } = context;
 
+    function isSetupRequired(modeInfo) {
+        return !modeInfo.adminConfigured && (modeInfo.authMissing || modeInfo.isDefaultToken);
+    }
+
     /**
      * Admin 路由处理函数
      * @param {import('http').IncomingMessage} req
@@ -85,6 +97,129 @@ export function createAdminRouter(context) {
         const method = req.method;
 
         try {
+            // ==================== 登录与初始化 ====================
+
+            // GET /admin/auth/mode - 获取登录模式信息（公开接口）
+            if (method === 'GET' && pathname === '/auth/mode') {
+                const modeInfo = getAuthModeConfig();
+                sendJson(res, 200, {
+                    authEnabled: modeInfo.authEnabled,
+                    adminConfigured: modeInfo.adminConfigured,
+                    setupRequired: isSetupRequired(modeInfo),
+                    isDefaultToken: modeInfo.isDefaultToken
+                });
+                return;
+            }
+
+            // POST /admin/auth/setup - 首次初始化账号密码与 Token（公开接口）
+            if (method === 'POST' && pathname === '/auth/setup') {
+                const modeInfo = getAuthModeConfig();
+                if (!isSetupRequired(modeInfo)) {
+                    sendApiError(res, {
+                        code: ERROR_CODES.INVALID_REQUEST_BODY,
+                        message: '当前环境无需初始化，请直接登录',
+                        status: 409
+                    });
+                    return;
+                }
+
+                const body = await readBody(req);
+                const username = typeof body.username === 'string' ? body.username.trim() : '';
+                const password = typeof body.password === 'string' ? body.password : '';
+                const authTokenInput = typeof body.authToken === 'string' ? body.authToken.trim() : '';
+
+                if (!username || username.length < 3) {
+                    sendApiError(res, {
+                        code: ERROR_CODES.INVALID_REQUEST_BODY,
+                        message: '用户名至少需要 3 个字符'
+                    });
+                    return;
+                }
+
+                if (!password || password.length < 8) {
+                    sendApiError(res, {
+                        code: ERROR_CODES.INVALID_REQUEST_BODY,
+                        message: '密码至少需要 8 个字符'
+                    });
+                    return;
+                }
+
+                const finalToken = authTokenInput || generateApiToken();
+                if (finalToken.length < 10) {
+                    sendApiError(res, {
+                        code: ERROR_CODES.INVALID_REQUEST_BODY,
+                        message: 'Token 长度至少为 10 个字符'
+                    });
+                    return;
+                }
+
+                const hashed = hashAdminPassword(password);
+                saveServerConfig({
+                    authToken: finalToken,
+                    adminUsername: username,
+                    adminPasswordHash: hashed.passwordHash,
+                    adminPasswordSalt: hashed.passwordSalt,
+                    adminPasswordScheme: hashed.passwordScheme
+                });
+
+                sendJson(res, 200, {
+                    success: true,
+                    token: finalToken,
+                    generatedToken: !authTokenInput,
+                    username
+                });
+                return;
+            }
+
+            // POST /admin/auth/login - 账号密码登录并返回 API Token（公开接口）
+            if (method === 'POST' && pathname === '/auth/login') {
+                const body = await readBody(req);
+                const username = typeof body.username === 'string' ? body.username.trim() : '';
+                const password = typeof body.password === 'string' ? body.password : '';
+
+                const admin = getAdminAuthConfig();
+                if (!admin.username || !admin.passwordHash || !admin.passwordSalt) {
+                    sendApiError(res, {
+                        code: ERROR_CODES.INVALID_REQUEST_BODY,
+                        message: '账号未初始化，请先完成首次设置',
+                        status: 404
+                    });
+                    return;
+                }
+
+                const usernameMatched = username === admin.username;
+                const passwordMatched = verifyAdminPassword(
+                    password,
+                    admin.passwordHash,
+                    admin.passwordSalt,
+                    admin.passwordScheme
+                );
+
+                if (!usernameMatched || !passwordMatched) {
+                    sendApiError(res, {
+                        code: ERROR_CODES.UNAUTHORIZED,
+                        message: '用户名或密码错误'
+                    });
+                    return;
+                }
+
+                const modeInfo = getAuthModeConfig();
+                if (!modeInfo.authToken) {
+                    sendApiError(res, {
+                        code: ERROR_CODES.INTERNAL_ERROR,
+                        message: '当前未配置 API Token，请在服务器设置中补全'
+                    });
+                    return;
+                }
+
+                sendJson(res, 200, {
+                    success: true,
+                    token: modeInfo.authToken,
+                    username: admin.username
+                });
+                return;
+            }
+
             // ==================== 系统管理 ====================
 
             // GET /admin/status - 系统状态
@@ -481,6 +616,7 @@ export function createAdminRouter(context) {
                 const filters = {
                     status: url.searchParams.get('status') || null,
                     modelId: url.searchParams.get('model') || null,
+                    tokenId: url.searchParams.get('token') || null,
                     search: url.searchParams.get('search') || null,
                     startDate: url.searchParams.get('startDate') || null,
                     endDate: url.searchParams.get('endDate') || null
@@ -495,6 +631,7 @@ export function createAdminRouter(context) {
             if (method === 'GET' && pathname === '/history/stats') {
                 const url = new URL(req.url, `http://${req.headers.host}`);
                 const filters = {
+                    tokenId: url.searchParams.get('token') || null,
                     startDate: url.searchParams.get('startDate') || null,
                     endDate: url.searchParams.get('endDate') || null
                 };
@@ -508,6 +645,13 @@ export function createAdminRouter(context) {
             if (method === 'GET' && pathname === '/history/models') {
                 const models = getHistoryModelList();
                 sendJson(res, 200, models);
+                return;
+            }
+
+            // GET /admin/history/tokens - 获取历史中出现过的 token 列表
+            if (method === 'GET' && pathname === '/history/tokens') {
+                const tokens = getHistoryTokenList();
+                sendJson(res, 200, tokens);
                 return;
             }
 

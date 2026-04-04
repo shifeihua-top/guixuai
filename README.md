@@ -13,6 +13,7 @@ GuiXuAI 是一个面向浏览器自动化场景的统一 AI API 网关。
 - 多实例隔离：支持多账号、多会话并行运行
 - 稳定调度：内置队列、重试、故障转移
 - 可视化控制：提供 Web 管理界面用于配置、日志与状态查看
+- 多 Token 管理：支持并行 token、按 token 调用记录与筛选
 
 ## 示例效果
 
@@ -56,6 +57,13 @@ server:
   auth: sk-change-me-to-your-secure-key
 ```
 
+现在也支持首装引导模式：
+
+- 若检测到默认/空 Token，WebUI 会进入“首次初始化”
+- 直接在页面设置管理员账号密码（可选自定义 Token，留空自动生成）
+- 完成后自动登录，不再需要手动编辑配置文件
+- 系统设置页支持一键复制 MCP 配置和 OpenClaw Skill 安装说明
+
 ## Docker 部署
 
 ```bash
@@ -95,9 +103,15 @@ GUIXUAI_API_TOKEN=sk-your-token \
 npm run mcp:start
 ```
 
+OpenClaw Skill 示例文件（可直接复用）：
+
+- [OpenClaw Skill 模板](SKILL.md)
+- `npm run mcp:smoke:image-output`：自动验证 MCP 图像 `output` 模式（inline/file/files）
+
 ## 文档导航
 
 - [文档总览](docs/README.md)
+- [项目更新说明（2026-04-05）](docs/PROJECT_UPDATE_2026-04-05.md)
 - [通用 API 指南](docs/UNIVERSAL_API_GUIDE.md)
 - [MCP 接入指南](docs/MCP_GUIDE.md)
 - [部署与运维指南](docs/DEPLOYMENT_GUIDE.md)

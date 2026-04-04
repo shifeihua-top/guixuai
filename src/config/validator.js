@@ -31,6 +31,42 @@ export function validateServerConfig(data) {
         }
     }
 
+    // 多 Token 校验
+    if (data.authTokens !== undefined) {
+        if (!Array.isArray(data.authTokens)) {
+            errors.push('authTokens 必须是数组');
+        } else {
+            const tokenSet = new Set();
+            for (let i = 0; i < data.authTokens.length; i++) {
+                const item = data.authTokens[i] || {};
+                const prefix = `authTokens[${i}]`;
+                if (item.name !== undefined && typeof item.name !== 'string') {
+                    errors.push(`${prefix}.name 必须是字符串`);
+                }
+                if (item.token !== undefined && typeof item.token !== 'string') {
+                    errors.push(`${prefix}.token 必须是字符串`);
+                    continue;
+                }
+                const token = (item.token || '').trim();
+                if (!token) {
+                    errors.push(`${prefix}.token 不能为空`);
+                    continue;
+                }
+                if (token.length < 10) {
+                    errors.push(`${prefix}.token 至少 10 个字符`);
+                }
+                if (tokenSet.has(token)) {
+                    errors.push(`${prefix}.token 重复`);
+                } else {
+                    tokenSet.add(token);
+                }
+                if (item.enabled !== undefined && typeof item.enabled !== 'boolean') {
+                    errors.push(`${prefix}.enabled 必须是布尔值`);
+                }
+            }
+        }
+    }
+
     // Keepalive Mode 校验
     if (data.keepaliveMode !== undefined) {
         if (!['comment', 'content'].includes(data.keepaliveMode)) {

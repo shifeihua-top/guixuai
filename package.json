@@ -8,6 +8,7 @@
 	"scripts": {
 		"start": "node supervisor.js",
 		"mcp:start": "node scripts/mcp/server.mjs",
+		"mcp:smoke:image-output": "node scripts/examples/mcp_image_edit_smoke.mjs",
 		"genkey": "node scripts/genkey.js",
 		"init": "node scripts/init.js",
 		"postinstall": "node scripts/postinstall.js"

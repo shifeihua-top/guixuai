@@ -1,6 +1,6 @@
 # MCP 接入指南（OpenClaw / 通用 MCP 客户端）
 
-更新时间：2026-04-03
+更新时间：2026-04-05
 
 本项目已提供可直接运行的 MCP Server（stdio 模式）：
 
@@ -16,6 +16,7 @@
   - 对应：`POST /v1/chat/completions`
 - `guixuai_image_edit`
   - 对应：`POST /v1/chat/completions`（图像编辑封装）
+  - 参数增强：支持 `ratio`、`quality`、`output`
 - `guixuai_get_cookies`
   - 对应：`GET /v1/cookies`
 
@@ -63,12 +64,27 @@ node scripts/mcp/server.mjs
 }
 ```
 
+补充：如果你使用内置 WebUI，可以在「系统设置」直接使用：
+
+- `复制 MCP 配置`
+- `复制 OpenClaw 配置+Skill 安装`
+
+来快速完成 OpenClaw 的接入初始化。
+
 ## 5. 调用建议
 
 - 先调用 `guixuai_list_models` 获取模型
 - 文本任务优先用 `guixuai_chat_completion`
-- 图像任务优先用 `guixuai_image_edit`
+- 图像任务优先用 `guixuai_image_edit`，并使用 `ratio/quality/output` 统一参数
 - 若会话异常，用 `guixuai_get_cookies` 排查
+
+`output` 支持：
+
+- `inline`：仅返回接口原始内容，不落盘
+- `file`：落盘单图
+- `files`：多图全量落盘
+- 也可直接传文件路径（等价于 `output_path`）
+- 未传 `output` 时默认保留全量结果（等价 `files`）
 
 ## 6. MCP 工具调用示例
 
@@ -125,10 +141,20 @@ node scripts/mcp/server.mjs
     "model": "seedream-4.5",
     "prompt": "保留主体，改为纯白背景",
     "image_path": "./input.jpg",
+    "ratio": "1:1",
+    "quality": "high",
+    "output": "files",
     "output_path": "./data/test_outputs/mcp_result.jpg"
   }
 }
 ```
+
+返回中会包含：
+
+- `output_path`：首张图路径
+- `output_paths`：实际落盘路径数组
+- `image_count`：模型返回图片数
+- `saved_count`：实际保存图片数
 
 ### 6.5 Cookie 排查
 
@@ -150,3 +176,22 @@ node scripts/mcp/server.mjs
   - token 无效或服务鉴权配置已变更
 - 报错连接失败
   - 检查 `GUIXUAI_BASE_URL` 与服务是否已启动
+
+## 8. 自动验证（output 模式）
+
+可用内置 smoke 脚本一次验证 `inline/file/files` 三种输出行为：
+
+```bash
+GUIXUAI_BASE_URL=http://127.0.0.1:3000 \
+GUIXUAI_API_TOKEN=sk-your-token \
+npm run mcp:smoke:image-output -- \
+  --model seedream-4.5 \
+  --prompt "改成白底电商主图，主体居中" \
+  --image ./input.jpg
+```
+
+可选参数：
+
+- `--modes inline,file,files`：指定验证模式（默认三种全跑）
+- `--ratio 1:1`、`--quality high`：统一参数映射验证
+- `--out-dir ./data/test_outputs/mcp_smoke`：输出目录

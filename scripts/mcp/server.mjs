@@ -8,7 +8,7 @@ import fs from "fs/promises";
 import path from "path";
 
 const SERVER_NAME = "guixuai-mcp";
-const SERVER_VERSION = "0.1.0";
+const SERVER_VERSION = "0.2.0";
 const DEFAULT_PROTOCOL_VERSION = "2024-11-05";
 
 const BASE_URL = (process.env.GUIXUAI_BASE_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
@@ -65,6 +65,13 @@ const tools = [
         },
         prompt: { type: "string", description: "Image edit instruction." },
         image_path: { type: "string", description: "Absolute or relative local image path." },
+        ratio: { type: "string", description: "Optional aspect ratio hint, e.g. 1:1, 16:9." },
+        quality: { type: "string", description: "Optional quality hint, e.g. low/medium/high." },
+        output: {
+          type: "string",
+          description:
+            "Output mode or path. Supports: inline | file | files, or a custom file path (alias of output_path).",
+        },
         output_path: { type: "string", description: "Optional output file path." },
       },
       required: ["prompt", "image_path"],
@@ -156,6 +163,31 @@ function parseDataImage(content) {
   return { mime: m[1], base64: m[2] };
 }
 
+function parseDataImages(content) {
+  if (typeof content !== "string" || !content.trim()) return [];
+
+  const all = [];
+  const seen = new Set();
+  const single = parseDataImage(content.trim());
+  if (single) {
+    const key = `${single.mime}|${single.base64}`;
+    seen.add(key);
+    all.push(single);
+  }
+
+  const re = /data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)/g;
+  let match = null;
+  while ((match = re.exec(content)) !== null) {
+    const mime = match[1];
+    const base64 = match[2];
+    const key = `${mime}|${base64}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    all.push({ mime, base64 });
+  }
+  return all;
+}
+
 async function ensureParentDir(filePath) {
   const dir = path.dirname(filePath);
   await fs.mkdir(dir, { recursive: true });
@@ -165,7 +197,62 @@ function extByMime(mime) {
   if (mime === "image/png") return "png";
   if (mime === "image/webp") return "webp";
   if (mime === "image/gif") return "gif";
+  if (mime === "image/jpg") return "jpg";
   return "jpg";
+}
+
+function normalizeOptionalString(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function parseOutputSetting({ output, outputPath }) {
+  const normalizedOutput = normalizeOptionalString(output);
+  let mode = "auto";
+  let resolvedOutputPath = normalizeOptionalString(outputPath);
+
+  if (normalizedOutput) {
+    const lowered = normalizedOutput.toLowerCase();
+    if (lowered === "inline" || lowered === "base64" || lowered === "raw") {
+      mode = "inline";
+    } else if (lowered === "file" || lowered === "save") {
+      mode = "file";
+    } else if (lowered === "files" || lowered === "all") {
+      mode = "files";
+    } else if (!resolvedOutputPath) {
+      resolvedOutputPath = normalizedOutput;
+      mode = "file";
+    }
+  }
+
+  return {
+    mode,
+    outputPath: resolvedOutputPath ? path.resolve(resolvedOutputPath) : null,
+  };
+}
+
+function buildOutputPaths(images, explicitOutputPath) {
+  if (!Array.isArray(images) || images.length === 0) return [];
+
+  if (!explicitOutputPath) {
+    const stamp = Date.now();
+    return images.map((img, idx) =>
+      path.join(process.cwd(), "data", "test_outputs", `mcp_image_${stamp}_${idx + 1}.${extByMime(img.mime)}`)
+    );
+  }
+
+  if (images.length === 1) return [explicitOutputPath];
+
+  const parsed = path.parse(explicitOutputPath);
+  if (parsed.ext) {
+    const base = path.join(parsed.dir, parsed.name);
+    return images.map((img, idx) =>
+      idx === 0 ? explicitOutputPath : `${base}_${idx + 1}.${extByMime(img.mime)}`
+    );
+  }
+
+  return images.map((img, idx) => `${explicitOutputPath}_${idx + 1}.${extByMime(img.mime)}`);
 }
 
 async function callTool(name, args = {}) {
@@ -201,7 +288,15 @@ async function callTool(name, args = {}) {
   }
 
   if (name === TOOL_NAME_IMAGE_EDIT) {
-    const { model = "seedream-4.5", prompt, image_path, output_path } = args;
+    const {
+      model = "seedream-4.5",
+      prompt,
+      image_path,
+      ratio,
+      quality,
+      output,
+      output_path,
+    } = args;
     if (!prompt) throw new Error("prompt is required");
     if (!image_path) throw new Error("image_path is required");
 
@@ -213,6 +308,8 @@ async function callTool(name, args = {}) {
     const payload = {
       model,
       stream: false,
+      ratio: normalizeOptionalString(ratio) ?? undefined,
+      quality: normalizeOptionalString(quality) ?? undefined,
       messages: [
         {
           role: "user",
@@ -231,21 +328,36 @@ async function callTool(name, args = {}) {
     });
 
     const content = data?.choices?.[0]?.message?.content;
-    const parsed = typeof content === "string" ? parseDataImage(content) : null;
-    if (parsed) {
-      const outPath =
-        output_path
-          ? path.resolve(output_path)
-          : path.join(process.cwd(), "data", "test_outputs", `mcp_image_${Date.now()}.${extByMime(parsed.mime)}`);
-      await ensureParentDir(outPath);
-      await fs.writeFile(outPath, Buffer.from(parsed.base64, "base64"));
+    const images = parseDataImages(content);
+    const outputSetting = parseOutputSetting({ output, outputPath: output_path });
+
+    if (images.length > 0 && outputSetting.mode !== "inline") {
+      const imagesToWrite =
+        outputSetting.mode === "file"
+          ? [images[0]]
+          : images;
+      const plannedPaths = buildOutputPaths(imagesToWrite, outputSetting.outputPath);
+      for (let i = 0; i < plannedPaths.length; i += 1) {
+        const outPath = plannedPaths[i];
+        const image = imagesToWrite[i];
+        await ensureParentDir(outPath);
+        await fs.writeFile(outPath, Buffer.from(image.base64, "base64"));
+      }
+
       return toTextResult(
         JSON.stringify(
           {
             ok: true,
             model,
-            output_path: outPath,
-            mime: parsed.mime,
+            output_path: plannedPaths[0],
+            output_paths: plannedPaths,
+            mime: imagesToWrite[0]?.mime || null,
+            image_count: images.length,
+            saved_count: imagesToWrite.length,
+            generation: {
+              ratio: normalizeOptionalString(ratio),
+              quality: normalizeOptionalString(quality),
+            },
             request_id: data?.id || null,
           },
           null,

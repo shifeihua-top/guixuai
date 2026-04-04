@@ -36,10 +36,10 @@ const WEBUI_DIR = path.join(process.cwd(), 'webui', 'dist');
  * @returns {Function} 请求处理函数
  */
 export function createGlobalRouter(context) {
-    const { authToken, config, queueManager, tempDir, loginMode, getSafeMode } = context;
+    const { authToken, getAuthEntries, config, queueManager, tempDir, loginMode, getSafeMode } = context;
 
     // 创建鉴权中间件
-    const checkAuth = createAuthMiddleware(authToken);
+    const checkAuth = createAuthMiddleware({ authToken, getAuthEntries });
 
     // 创建子路由处理器
     const handleOpenAIRequest = loginMode ? null : createOpenAIRouter(context);
@@ -51,6 +51,10 @@ export function createGlobalRouter(context) {
     return async function handleRequest(req, res) {
         const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
         const pathname = parsedUrl.pathname;
+        const isPublicAdminAuthPath =
+            pathname === '/admin/auth/mode' ||
+            pathname === '/admin/auth/login' ||
+            pathname === '/admin/auth/setup';
 
         // ==================== 静态文件服务 ====================
         if (req.method === 'GET' && !pathname.startsWith('/v1') && !pathname.startsWith('/admin')) {
@@ -85,7 +89,7 @@ export function createGlobalRouter(context) {
         }
 
         // ==================== 鉴权检查 ====================
-        if (!checkAuth(req, res)) {
+        if (!isPublicAdminAuthPath && !checkAuth(req, res)) {
             return; // 鉴权失败，已发送错误响应
         }
 

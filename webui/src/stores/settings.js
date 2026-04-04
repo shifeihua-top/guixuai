@@ -4,6 +4,12 @@ import { message, Modal } from 'ant-design-vue';
 export const useSettingsStore = defineStore('settings', {
     state: () => ({
         token: localStorage.getItem('admin_token') || '',
+        authMode: {
+            authEnabled: true,
+            adminConfigured: false,
+            setupRequired: false,
+            isDefaultToken: false
+        },
         serverConfig: {},
         browserConfig: {},
         workerConfig: [],
@@ -47,6 +53,73 @@ export const useSettingsStore = defineStore('settings', {
                 return res.status !== 401;
             } catch (e) {
                 return false;
+            }
+        },
+
+        async fetchAuthMode() {
+            try {
+                const res = await fetch('/admin/auth/mode');
+                if (!res.ok) return null;
+                const data = await res.json();
+                this.authMode = {
+                    authEnabled: !!data.authEnabled,
+                    adminConfigured: !!data.adminConfigured,
+                    setupRequired: !!data.setupRequired,
+                    isDefaultToken: !!data.isDefaultToken
+                };
+                return this.authMode;
+            } catch (e) {
+                console.error('Fetch auth mode failed', e);
+                return null;
+            }
+        },
+
+        async loginWithPassword(username, password) {
+            try {
+                const res = await fetch('/admin/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    return {
+                        success: false,
+                        message: data?.error?.message || data?.message || `HTTP ${res.status}`
+                    };
+                }
+                return {
+                    success: true,
+                    token: data.token || '',
+                    username: data.username || username
+                };
+            } catch (e) {
+                return { success: false, message: e.message || '网络错误' };
+            }
+        },
+
+        async setupInitialAuth({ username, password, authToken }) {
+            try {
+                const res = await fetch('/admin/auth/setup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, authToken })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    return {
+                        success: false,
+                        message: data?.error?.message || data?.message || `HTTP ${res.status}`
+                    };
+                }
+                return {
+                    success: true,
+                    token: data.token || '',
+                    generatedToken: !!data.generatedToken,
+                    username: data.username || username
+                };
+            } catch (e) {
+                return { success: false, message: e.message || '网络错误' };
             }
         },
 
@@ -94,6 +167,9 @@ export const useSettingsStore = defineStore('settings', {
                 const result = await this.handleResponse(res, '服务器设置保存成功');
                 if (result.success) {
                     this.serverConfig = config;
+                    if (typeof config.authToken === 'string') {
+                        this.setToken(config.authToken);
+                    }
                     return true;
                 }
             } catch (e) {

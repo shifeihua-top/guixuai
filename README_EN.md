@@ -13,6 +13,7 @@ It standardizes heterogeneous web AI capabilities behind one consistent API so a
 - Multi-instance isolation: parallel sessions and account separation
 - Reliable execution: queueing, retry, and failover mechanisms
 - Web console: configuration, logs, and runtime visibility
+- Multi-token support: parallel tokens with per-token request tracing
 
 ## Example Output
 
@@ -57,6 +58,13 @@ server:
   auth: sk-change-me-to-your-secure-key
 ```
 
+First-run guided setup is also supported:
+
+- When default/empty token is detected, WebUI enters initialization mode
+- Configure admin username/password in UI (optional custom token, or auto-generate)
+- Auto-login after setup, no manual config-file editing required
+- Server settings page provides one-click MCP config copy and OpenClaw skill-install notes
+
 ## Docker
 
 ```bash
@@ -96,9 +104,15 @@ GUIXUAI_API_TOKEN=sk-your-token \
 npm run mcp:start
 ```
 
+OpenClaw skill template:
+
+- [OpenClaw Skill Template](SKILL.md)
+- `npm run mcp:smoke:image-output`: smoke test for MCP image `output` modes (inline/file/files)
+
 ## Documentation
 
 - [Docs Overview](docs/README.md)
+- [Project Update Notes (2026-04-05)](docs/PROJECT_UPDATE_2026-04-05_EN.md)
 - [Universal API Guide](docs/UNIVERSAL_API_GUIDE.md)
 - [MCP Integration Guide](docs/MCP_GUIDE.md)
 - [Deployment & Operations Guide](docs/DEPLOYMENT_GUIDE.md)

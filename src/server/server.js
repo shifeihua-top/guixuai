@@ -28,6 +28,7 @@ const { createQueueManager, createGlobalRouter } = await import('./index.js');
 const { isUnderSupervisor } = await import('../utils/ipc.js');
 const { loadTodayStats } = await import('../utils/stats.js');
 const { initHistoryDb } = await import('../utils/history.js');
+const { getAuthTokensConfig } = await import('../config/manager.js');
 
 // ==================== 初始化配置 ====================
 
@@ -115,6 +116,7 @@ let safeModeReason = null;
 
 const handleRequest = createGlobalRouter({
     authToken: AUTH_TOKEN,
+    getAuthEntries: () => getAuthTokensConfig(),
     backendName,
     getModels,
     getImagePolicy,
@@ -205,7 +207,7 @@ async function startServer() {
         // 只处理 /admin/vnc 路径
         if (url.pathname === '/admin/vnc') {
             const { handleVncUpgrade } = await import('./api/admin/vncProxy.js');
-            await handleVncUpgrade(req, socket, head, AUTH_TOKEN);
+            await handleVncUpgrade(req, socket, head, () => getAuthTokensConfig());
         } else {
             socket.destroy();
         }

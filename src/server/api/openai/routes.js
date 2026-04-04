@@ -135,7 +135,8 @@ export function createOpenAIRouter(context) {
                 modelId,
                 modelName,
                 id: requestId,
-                isStreaming
+                isStreaming,
+                authInfo: req.authInfo || null
             });
 
         } catch (err) {

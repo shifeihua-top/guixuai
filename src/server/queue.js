@@ -28,6 +28,7 @@ import { createRecord, updateRecord, processResponseMedia } from '../utils/histo
  * @property {string|null} modelName - 模型名称
  * @property {string} id - 请求唯一标识
  * @property {boolean} isStreaming - 是否流式请求
+ * @property {object|null} [authInfo] - 鉴权 token 信息
  */
 
 /**
@@ -125,7 +126,7 @@ export function createQueueManager(queueConfig, callbacks) {
      * @param {TaskContext} task - 任务上下文
      */
     async function processTask(task) {
-        const { res, prompt, imagePaths, modelId, modelName, id, isStreaming } = task;
+        const { res, prompt, imagePaths, modelId, modelName, id, isStreaming, authInfo } = task;
         const startTime = Date.now();
 
         logger.info('服务器', '[队列] 开始处理任务', { id, remaining: queue.length });
@@ -136,6 +137,9 @@ export function createQueueManager(queueConfig, callbacks) {
                 id,
                 modelId,
                 modelName,
+                tokenId: authInfo?.tokenId || null,
+                tokenName: authInfo?.tokenName || null,
+                tokenMasked: authInfo?.tokenMasked || null,
                 prompt,
                 inputImages: imagePaths,
                 isStreaming,

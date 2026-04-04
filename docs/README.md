@@ -2,8 +2,14 @@
 
 本目录提供面向新项目发布的通用文档，避免绑定单一站点或单一厂商。
 
+仓库根目录另提供：
+
+- `SKILL.md`：OpenClaw Skill 模板（基于 WebtoAPI API + MCP）
+
 ## 文档列表
 
+- `PROJECT_UPDATE_2026-04-05.md`：本次版本更新说明（OpenClaw/MCP、登录、多 Token、日志审计）
+- `PROJECT_UPDATE_2026-04-05_EN.md`：Update notes in English
 - `UNIVERSAL_API_GUIDE.md`：OpenAI 兼容接口与调用规范
 - `DEPLOYMENT_GUIDE.md`：本地与 Docker 部署、环境建议、安全建议
 - `ADAPTER_GUIDE.md`：适配器能力模型、开发约定、测试清单

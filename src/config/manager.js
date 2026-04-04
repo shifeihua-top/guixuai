@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import yaml from 'yaml';
+import crypto from 'crypto';
 import { logger } from '../utils/logger.js';
 import { getConfigPath } from './index.js';
 
@@ -37,15 +38,83 @@ function writeConfig(config) {
     logger.info('管理器', `配置已保存到 ${configPath}`);
 }
 
+function safeString(value) {
+    return typeof value === 'string' ? value.trim() : '';
+}
+
+function makeTokenId(index = 0, token = '') {
+    if (token) {
+        const digest = crypto.createHash('sha1').update(token).digest('hex').slice(0, 12);
+        return `tk_${digest}`;
+    }
+    return `tk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}_${index}`;
+}
+
+function normalizeTokenName(name, index) {
+    const n = safeString(name);
+    return n || `token_${index + 1}`;
+}
+
+function normalizeAuthTokens(authTokens) {
+    if (!Array.isArray(authTokens)) return [];
+    const list = [];
+    const tokenSet = new Set();
+
+    for (let i = 0; i < authTokens.length; i++) {
+        const item = authTokens[i] || {};
+        const token = safeString(item.token);
+        if (!token) continue;
+        if (tokenSet.has(token)) continue;
+        tokenSet.add(token);
+
+        list.push({
+            id: safeString(item.id) || makeTokenId(i, token),
+            name: normalizeTokenName(item.name, i),
+            token,
+            enabled: item.enabled !== false
+        });
+    }
+    return list;
+}
+
+function buildEffectiveAuthTokens(config) {
+    const auth = safeString(config?.server?.auth);
+    const list = normalizeAuthTokens(config?.server?.authTokens || []);
+    const existing = new Set(list.map(t => t.token));
+
+    if (auth && !existing.has(auth)) {
+        list.unshift({
+            id: 'primary',
+            name: 'primary',
+            token: auth,
+            enabled: true
+        });
+    }
+
+    if (auth) {
+        for (const item of list) {
+            item.isPrimary = item.token === auth;
+        }
+    }
+
+    return list;
+}
+
 /**
  * 获取服务器配置
  * @returns {object}
  */
 export function getServerConfig() {
     const config = readRawConfig();
+    const authTokens = buildEffectiveAuthTokens(config);
+    const primary = authTokens.find(t => t.isPrimary) || authTokens[0] || null;
     return {
         port: config.server?.port || 3000,
         authToken: config.server?.auth || '',
+        authTokens,
+        primaryTokenId: primary?.id || '',
+        adminUsername: config.server?.admin?.username || '',
+        adminConfigured: !!(config.server?.admin?.username && config.server?.admin?.passwordHash && config.server?.admin?.passwordSalt),
         keepaliveMode: config.server?.keepalive?.mode || 'comment',
         logLevel: config.logLevel || 'info'
     };
@@ -61,7 +130,36 @@ export function saveServerConfig(data) {
     if (!config.server) config.server = {};
 
     if (data.port !== undefined) config.server.port = data.port;
-    if (data.authToken !== undefined) config.server.auth = data.authToken;
+
+    let nextAuthToken = safeString(config.server.auth);
+
+    if (data.authTokens !== undefined) {
+        config.server.authTokens = normalizeAuthTokens(data.authTokens);
+    }
+    if (data.authToken !== undefined) {
+        nextAuthToken = safeString(data.authToken);
+    } else if (data.authTokens !== undefined) {
+        const primaryToken = (config.server.authTokens || []).find(t => t.enabled !== false);
+        nextAuthToken = primaryToken?.token || '';
+    }
+    config.server.auth = nextAuthToken;
+
+    if (data.adminUsername !== undefined) {
+        if (!config.server.admin) config.server.admin = {};
+        config.server.admin.username = data.adminUsername;
+    }
+    if (data.adminPasswordHash !== undefined) {
+        if (!config.server.admin) config.server.admin = {};
+        config.server.admin.passwordHash = data.adminPasswordHash;
+    }
+    if (data.adminPasswordSalt !== undefined) {
+        if (!config.server.admin) config.server.admin = {};
+        config.server.admin.passwordSalt = data.adminPasswordSalt;
+    }
+    if (data.adminPasswordScheme !== undefined) {
+        if (!config.server.admin) config.server.admin = {};
+        config.server.admin.passwordScheme = data.adminPasswordScheme;
+    }
     if (data.keepaliveMode !== undefined) {
         if (!config.server.keepalive) config.server.keepalive = {};
         config.server.keepalive.mode = data.keepaliveMode;
@@ -69,6 +167,60 @@ export function saveServerConfig(data) {
     if (data.logLevel !== undefined) config.logLevel = data.logLevel;
 
     writeConfig(config);
+}
+
+const DEFAULT_AUTH_TOKEN = 'sk-change-me-to-your-secure-key';
+
+/**
+ * 获取鉴权模式信息（用于 WebUI 登录页）
+ * @returns {{
+ *   authEnabled: boolean,
+ *   authToken: string,
+ *   authMissing: boolean,
+ *   isDefaultToken: boolean,
+ *   adminConfigured: boolean,
+ *   adminUsername: string
+ * }}
+ */
+export function getAuthModeConfig() {
+    const config = readRawConfig();
+    const tokenList = buildEffectiveAuthTokens(config).filter(t => t.enabled !== false && t.token);
+    const authToken = tokenList.find(t => t.isPrimary)?.token || tokenList[0]?.token || '';
+    const admin = config.server?.admin || {};
+    const adminConfigured = !!(admin.username && admin.passwordHash && admin.passwordSalt);
+
+    return {
+        authEnabled: !!authToken,
+        authToken,
+        authMissing: !authToken,
+        isDefaultToken: authToken === DEFAULT_AUTH_TOKEN,
+        adminConfigured,
+        adminUsername: admin.username || ''
+    };
+}
+
+/**
+ * 获取可用鉴权 token 列表（兼容旧单 token 配置）
+ * @returns {Array<{id: string, name: string, token: string, enabled: boolean, isPrimary: boolean}>}
+ */
+export function getAuthTokensConfig() {
+    const config = readRawConfig();
+    return buildEffectiveAuthTokens(config);
+}
+
+/**
+ * 获取 WebUI 账号配置
+ * @returns {{username: string, passwordHash: string, passwordSalt: string, passwordScheme: string}}
+ */
+export function getAdminAuthConfig() {
+    const config = readRawConfig();
+    const admin = config.server?.admin || {};
+    return {
+        username: admin.username || '',
+        passwordHash: admin.passwordHash || '',
+        passwordSalt: admin.passwordSalt || '',
+        passwordScheme: admin.passwordScheme || ''
+    };
 }
 
 /**

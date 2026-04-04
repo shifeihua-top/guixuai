@@ -32,8 +32,10 @@ const pageSize = ref(50);
 const dateRange = ref([]);
 const statusFilter = ref('all');
 const modelFilter = ref('');
+const tokenFilter = ref('');
 const searchText = ref('');
 const modelOptions = ref([]);
+const tokenOptions = ref([]);
 
 // 多选状态
 const selectedRowKeys = ref([]);
@@ -102,6 +104,9 @@ const fetchHistory = async () => {
         if (modelFilter.value) {
             params.append('model', modelFilter.value);
         }
+        if (tokenFilter.value) {
+            params.append('token', tokenFilter.value);
+        }
         if (searchText.value) {
             params.append('search', searchText.value);
         }
@@ -147,6 +152,9 @@ const fetchStats = async () => {
             params.append('startDate', dateRange.value[0].format('YYYY-MM-DD'));
             params.append('endDate', dateRange.value[1].format('YYYY-MM-DD'));
         }
+        if (tokenFilter.value) {
+            params.append('token', tokenFilter.value);
+        }
 
         const res = await fetch(`/admin/history/stats?${params.toString()}`, {
             headers: settingsStore.getHeaders()
@@ -170,6 +178,19 @@ const fetchModels = async () => {
         }
     } catch (e) {
         console.error('获取模型列表失败', e);
+    }
+};
+
+const fetchTokens = async () => {
+    try {
+        const res = await fetch('/admin/history/tokens', {
+            headers: settingsStore.getHeaders()
+        });
+        if (res.ok) {
+            tokenOptions.value = await res.json();
+        }
+    } catch (e) {
+        console.error('获取 Token 列表失败', e);
     }
 };
 
@@ -392,6 +413,13 @@ const columns = [
         ellipsis: true
     },
     {
+        title: 'Token',
+        dataIndex: 'token_name',
+        key: 'token_name',
+        width: 130,
+        ellipsis: true
+    },
+    {
         title: '响应',
         key: 'response',
         width: 220
@@ -427,7 +455,7 @@ const columns = [
 ];
 
 // 监听筛选变化
-watch([statusFilter, modelFilter, dateRange], () => {
+watch([statusFilter, modelFilter, tokenFilter, dateRange], () => {
     page.value = 1;
     fetchHistory();
     fetchStats();
@@ -660,6 +688,7 @@ const silentFetchHistory = async () => {
         const params = new URLSearchParams({ page: page.value, pageSize: pageSize.value });
         if (statusFilter.value && statusFilter.value !== 'all') params.append('status', statusFilter.value);
         if (modelFilter.value) params.append('model', modelFilter.value);
+        if (tokenFilter.value) params.append('token', tokenFilter.value);
         if (searchText.value) params.append('search', searchText.value);
         if (dateRange.value && dateRange.value.length === 2) {
             params.append('startDate', dateRange.value[0].format('YYYY-MM-DD'));
@@ -681,6 +710,9 @@ const silentFetchStats = async () => {
         if (dateRange.value && dateRange.value.length === 2) {
             params.append('startDate', dateRange.value[0].format('YYYY-MM-DD'));
             params.append('endDate', dateRange.value[1].format('YYYY-MM-DD'));
+        }
+        if (tokenFilter.value) {
+            params.append('token', tokenFilter.value);
         }
         const res = await fetch(`/admin/history/stats?${params.toString()}`, { headers: settingsStore.getHeaders() });
         if (res.ok) { stats.value = await res.json(); }
@@ -708,6 +740,7 @@ onMounted(() => {
     fetchHistory();
     fetchStats();
     fetchModels();
+    fetchTokens();
     fetchSendModelList();
 });
 
@@ -832,6 +865,12 @@ onUnmounted(() => {
                     allow-clear show-search>
                     <a-select-option v-for="model in modelOptions" :key="model" :value="model">
                         {{ model }}
+                    </a-select-option>
+                </a-select>
+                <a-select v-model:value="tokenFilter" class="toolbar-token-select" size="small" placeholder="全部 Token"
+                    allow-clear show-search>
+                    <a-select-option v-for="token in tokenOptions" :key="token.tokenId" :value="token.tokenId">
+                        {{ token.tokenName }} ({{ token.total }})
                     </a-select-option>
                 </a-select>
                 <a-button size="small" @click="handleRefresh">
@@ -977,6 +1016,12 @@ onUnmounted(() => {
                     </a-descriptions-item>
                     <a-descriptions-item label="模型" :span="2">
                         {{ currentRecord.model_name || currentRecord.model_id || '-' }}
+                    </a-descriptions-item>
+                    <a-descriptions-item label="Token">
+                        {{ currentRecord.token_name || '-' }}
+                    </a-descriptions-item>
+                    <a-descriptions-item label="Token 标识">
+                        {{ currentRecord.token_masked || '-' }}
                     </a-descriptions-item>
                     <a-descriptions-item label="耗时">
                         {{ formatDuration(currentRecord.duration_ms) }}
@@ -1161,6 +1206,10 @@ onUnmounted(() => {
 
 .toolbar-model-select {
     width: 200px;
+}
+
+.toolbar-token-select {
+    width: 180px;
 }
 
 @media (min-width: 768px) {

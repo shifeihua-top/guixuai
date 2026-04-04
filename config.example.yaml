@@ -7,6 +7,24 @@ server:
   # 鉴权 API Token 至少为 10 个字符 (可使用 npm run genkey 生成)
   # 该配置会对 API 接口和 WebUI 生效
   auth: sk-change-me-to-your-secure-key
+  # 多 Token 配置（可选）
+  # 若配置后，将与 auth 一起生效；可在 WebUI 中管理
+  # authTokens:
+  #   - id: primary
+  #     name: primary
+  #     token: sk-change-me-to-your-secure-key
+  #     enabled: true
+  #   - id: partner_a
+  #     name: partner_a
+  #     token: sk-another-token
+  #     enabled: true
+  # WebUI 管理员账号（可选）
+  # 首次启动可在 WebUI 初始化流程中自动写入，无需手动配置
+  # admin:
+  #   username: admin
+  #   passwordHash: "<pbkdf2-hash>"
+  #   passwordSalt: "<salt>"
+  #   passwordScheme: "pbkdf2:sha256:120000:64"
   # 流式请求心跳设置 (自动对 stream: true 的请求发送心跳防止超时)
   keepalive:
     # 心跳模式

@@ -11,14 +11,14 @@ import { getVncInfo } from '../../../utils/ipc.js';
  * @param {import('http').IncomingMessage} req - HTTP 请求
  * @param {import('net').Socket} socket - 原始 TCP socket
  * @param {Buffer} head - 升级请求的头部数据
- * @param {string} authToken - 有效的认证令牌
+ * @param {Array<{token: string, enabled: boolean}>|Function|string} authConfig - 鉴权配置
  */
-export async function handleVncUpgrade(req, socket, head, authToken) {
+export async function handleVncUpgrade(req, socket, head, authConfig) {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
     // 验证 token
     const token = url.searchParams.get('token');
-    if (token !== authToken) {
+    if (!isVncTokenAuthorized(token, authConfig)) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
@@ -114,6 +114,28 @@ export async function handleVncUpgrade(req, socket, head, authToken) {
     socket.on('close', () => vncSocket.destroy());
     socket.on('error', () => vncSocket.destroy());
     vncSocket.on('close', () => socket.destroy());
+}
+
+function isVncTokenAuthorized(token, authConfig) {
+    const incoming = typeof token === 'string' ? token : '';
+    if (!incoming) return false;
+
+    if (typeof authConfig === 'function') {
+        return isVncTokenAuthorized(incoming, authConfig());
+    }
+
+    if (typeof authConfig === 'string') {
+        if (!authConfig) return true;
+        return incoming === authConfig;
+    }
+
+    if (Array.isArray(authConfig)) {
+        const enabled = authConfig.filter(e => e && e.enabled !== false && typeof e.token === 'string' && e.token);
+        if (enabled.length === 0) return true;
+        return enabled.some(e => e.token === incoming);
+    }
+
+    return false;
 }
 
 /**

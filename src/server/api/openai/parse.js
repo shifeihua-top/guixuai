@@ -25,6 +25,46 @@ function parseError(code, customMessage) {
     };
 }
 
+function normalizeOptionValue(value) {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+}
+
+function pickGenerationOption(data, keys) {
+    for (const key of keys) {
+        const value = normalizeOptionValue(data?.[key]);
+        if (value) return value;
+    }
+    return null;
+}
+
+function extractImageGenerationHints(data) {
+    return {
+        ratio: pickGenerationOption(data, ['ratio', 'aspect_ratio', 'aspectRatio']),
+        quality: pickGenerationOption(data, ['quality', 'image_quality', 'imageQuality'])
+    };
+}
+
+function appendGenerationHints(prompt, hints) {
+    const finalPrompt = typeof prompt === 'string' ? prompt.trim() : '';
+    const hintLines = [];
+
+    if (hints?.ratio) {
+        hintLines.push(`- ratio: ${hints.ratio}`);
+    }
+    if (hints?.quality) {
+        hintLines.push(`- quality: ${hints.quality}`);
+    }
+
+    if (hintLines.length === 0) {
+        return finalPrompt;
+    }
+
+    const hintBlock = ['[Generation Options]', ...hintLines].join('\n');
+    return finalPrompt ? `${finalPrompt}\n\n${hintBlock}` : hintBlock;
+}
+
 /**
  * @typedef {object} ParsedRequest
  * @property {string} prompt - 提取的提示词
@@ -75,6 +115,7 @@ export async function parseRequest(data, options) {
 
     const messages = data.messages;
     const isStreaming = data.stream === true;
+    const generationHints = extractImageGenerationHints(data);
 
     // 验证 messages
     if (!messages || messages.length === 0) {
@@ -121,7 +162,7 @@ export async function parseRequest(data, options) {
     // ============================================================
     // 分支 B: 生图模型解析 (原有逻辑)
     // ============================================================
-    return await parseImageRequest(messages, tempDir, imageLimit, modelKey, isStreaming, getImagePolicy);
+    return await parseImageRequest(messages, tempDir, imageLimit, modelKey, isStreaming, getImagePolicy, generationHints);
 }
 
 /**
@@ -242,7 +283,7 @@ async function parseTextRequest(messages, tempDir, imageLimit, modelId, isStream
 /**
  * 解析生图请求 (原有逻辑)
  */
-async function parseImageRequest(messages, tempDir, imageLimit, modelId, isStreaming, getImagePolicy) {
+async function parseImageRequest(messages, tempDir, imageLimit, modelId, isStreaming, getImagePolicy, generationHints) {
     // 筛选用户消息
     const userMessages = messages.filter(m => m.role === 'user');
     if (userMessages.length === 0) {
@@ -289,7 +330,7 @@ async function parseImageRequest(messages, tempDir, imageLimit, modelId, isStrea
         prompt = lastMessage.content;
     }
 
-    prompt = prompt.trim();
+    prompt = appendGenerationHints(prompt, generationHints);
 
     // 图片策略校验
     const hasImage = imagePaths.length > 0;

@@ -35,6 +35,9 @@ export async function initHistoryDb() {
             created_at INTEGER NOT NULL,
             model_id TEXT,
             model_name TEXT,
+            token_id TEXT,
+            token_name TEXT,
+            token_masked TEXT,
             prompt TEXT,
             input_images TEXT,
             response_text TEXT,
@@ -49,6 +52,14 @@ export async function initHistoryDb() {
         CREATE INDEX IF NOT EXISTS idx_status ON requests(status);
         CREATE INDEX IF NOT EXISTS idx_model_id ON requests(model_id);
     `);
+
+    // 兼容旧库：补齐新增列
+    const cols = db.prepare(`PRAGMA table_info(requests)`).all();
+    const colSet = new Set(cols.map(c => c.name));
+    if (!colSet.has('token_id')) db.exec(`ALTER TABLE requests ADD COLUMN token_id TEXT`);
+    if (!colSet.has('token_name')) db.exec(`ALTER TABLE requests ADD COLUMN token_name TEXT`);
+    if (!colSet.has('token_masked')) db.exec(`ALTER TABLE requests ADD COLUMN token_masked TEXT`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_token_id ON requests(token_id)`);
 
     logger.info('历史记录', '数据库初始化完成');
     return db;
@@ -73,8 +84,8 @@ function getDb() {
 export function createRecord(data) {
     const db = getDb();
     const stmt = db.prepare(`
-        INSERT INTO requests (id, created_at, model_id, model_name, prompt, input_images, status, is_streaming)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO requests (id, created_at, model_id, model_name, token_id, token_name, token_masked, prompt, input_images, status, is_streaming)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -82,6 +93,9 @@ export function createRecord(data) {
         Date.now(),
         data.modelId || null,
         data.modelName || null,
+        data.tokenId || null,
+        data.tokenName || null,
+        data.tokenMasked || null,
         data.prompt || null,
         data.inputImages ? JSON.stringify(data.inputImages) : null,
         data.status || 'pending',
@@ -154,6 +168,10 @@ export function getList(filters = {}, page = 1, pageSize = 20) {
     if (filters.modelId) {
         conditions.push('model_id LIKE ?');
         params.push(`%${filters.modelId}%`);
+    }
+    if (filters.tokenId) {
+        conditions.push('token_id = ?');
+        params.push(filters.tokenId);
     }
     if (filters.search) {
         conditions.push('(prompt LIKE ? OR response_text LIKE ?)');
@@ -468,6 +486,10 @@ export function getStats(filters = {}) {
         conditions.push('created_at <= ?');
         params.push(new Date(filters.endDate).setHours(23, 59, 59, 999));
     }
+    if (filters.tokenId) {
+        conditions.push('token_id = ?');
+        params.push(filters.tokenId);
+    }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -497,6 +519,47 @@ export function getModelList() {
     const db = getDb();
     const stmt = db.prepare('SELECT DISTINCT model_id FROM requests WHERE model_id IS NOT NULL ORDER BY model_id');
     return stmt.all().map(r => r.model_id);
+}
+
+/**
+ * 获取历史中的 token 列表与调用统计
+ * @returns {Array<{tokenId: string, tokenName: string, tokenMasked: string, total: number, success: number, failed: number}>}
+ */
+export function getTokenList() {
+    const db = getDb();
+    const stmt = db.prepare(`
+        SELECT
+            r.token_id as tokenId,
+            (
+                SELECT token_name
+                FROM requests r2
+                WHERE r2.token_id = r.token_id AND r2.token_name IS NOT NULL AND r2.token_name != ''
+                ORDER BY r2.created_at DESC
+                LIMIT 1
+            ) as tokenName,
+            (
+                SELECT token_masked
+                FROM requests r3
+                WHERE r3.token_id = r.token_id AND r3.token_masked IS NOT NULL AND r3.token_masked != ''
+                ORDER BY r3.created_at DESC
+                LIMIT 1
+            ) as tokenMasked,
+            COUNT(*) as total,
+            SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
+            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+        FROM requests r
+        WHERE r.token_id IS NOT NULL AND r.token_id != ''
+        GROUP BY r.token_id
+        ORDER BY total DESC
+    `);
+    return stmt.all().map(row => ({
+        tokenId: row.tokenId || '',
+        tokenName: row.tokenName || row.tokenId || 'unknown',
+        tokenMasked: row.tokenMasked || '',
+        total: row.total || 0,
+        success: row.success || 0,
+        failed: row.failed || 0
+    }));
 }
 
 /**
