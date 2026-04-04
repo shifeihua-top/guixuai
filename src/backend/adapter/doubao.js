@@ -22,7 +22,7 @@ const TARGET_URL = 'https://www.doubao.com/chat/';
 const TARGET_CREATE_IMAGE_URL = 'https://www.doubao.com/chat/create-image';
 const DEFAULT_IMAGE_WAIT_TIMEOUT_MS = 300000;
 const FALLBACK_PAGE_WAIT_TIMEOUT_MS = 25000;
-const LOGIN_MODAL_TEXT_RE = /登录以解锁更多功能|请输入手机号|抖音一键登录|打开\s*豆包\s*App|用户协议|隐私政策/i;
+const LOGIN_LIMIT_TEXT_RE = /未登录时仅能发起\s*5\s*个新对话.*请登录以解锁该限制/i;
 
 function escapeRegExp(text) {
     return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -99,7 +99,7 @@ function buildProgressError(error, tracker, extra = {}) {
 }
 
 function buildAuthRequiredError(tracker, source = 'unknown') {
-    return buildProgressError('检测到豆包登录弹窗，请先登录后重试', tracker, {
+    return buildProgressError('检测到豆包登录限制，请先登录后重试', tracker, {
         status: 'auth_required',
         code: ADAPTER_ERRORS.AUTH_REQUIRED,
         retryable: false,
@@ -151,81 +151,13 @@ async function clickWithFallback(page, locator, meta = {}, label = '元素') {
     return false;
 }
 
-async function isLoginModalVisible(page, timeout = 1200) {
-    const modal = await findFirstVisible([
-        page.locator('div[role="dialog"]').filter({ hasText: LOGIN_MODAL_TEXT_RE }),
-        page.locator('div[class*="modal"],div[class*="dialog"],div[class*="popup"]').filter({ hasText: LOGIN_MODAL_TEXT_RE }),
-        page.getByText(LOGIN_MODAL_TEXT_RE)
-    ], timeout);
-    return !!modal;
-}
-
-async function tryOpenLoginModal(page, meta = {}) {
-    if (await isLoginModalVisible(page, 1000)) {
-        return { modalVisible: true, source: 'already_visible' };
-    }
-
-    const loginButton = await findFirstVisible([
-        page.getByRole('button', { name: /^登录$|登录|log in|login/i }),
-        page.getByRole('link', { name: /^登录$|登录|log in|login/i }),
-        page.locator('button:has-text("登录"), a:has-text("登录"), div[role="button"]:has-text("登录")')
-    ], 2500);
-
-    if (!loginButton) {
-        return { modalVisible: false, source: 'login_button_not_found' };
-    }
-
-    const clicked = await clickWithFallback(page, loginButton, meta, '登录按钮');
-    if (!clicked) {
-        return { modalVisible: false, source: 'login_button_click_failed' };
-    }
-
-    await sleep(500, 800);
-    const modalVisible = await isLoginModalVisible(page, 3000);
-    return {
-        modalVisible,
-        source: modalVisible ? 'clicked_login_button' : 'clicked_login_without_modal'
-    };
-}
-
-async function dismissLoginModal(page, meta = {}) {
-    if (!(await isLoginModalVisible(page, 1000))) return true;
-
+async function detectLoginLimit(page) {
     try {
-        await page.keyboard.press('Escape');
-    } catch { }
-    await sleep(200, 350);
-    if (!(await isLoginModalVisible(page, 800))) return true;
-
-    try {
-        await page.mouse.click(20, 20);
-    } catch { }
-    await sleep(200, 350);
-    if (!(await isLoginModalVisible(page, 800))) return true;
-
-    const mask = await findFirstVisible([
-        page.locator('div[class*="mask"],div[class*="overlay"],div[aria-hidden="true"]'),
-        page.locator('div[role="dialog"]').first()
-    ], 1200);
-    if (mask) {
-        try {
-            await clickWithFallback(page, mask, meta, '登录遮罩层');
-        } catch { }
+        const text = await page.locator('body').innerText({ timeout: 1500 });
+        return LOGIN_LIMIT_TEXT_RE.test(text);
+    } catch {
+        return false;
     }
-
-    await sleep(200, 350);
-    return !(await isLoginModalVisible(page, 1000));
-}
-
-async function probeAuthState(page, meta = {}) {
-    if (await isLoginModalVisible(page, 1000)) {
-        return { required: true, source: 'modal_visible' };
-    }
-    const probe = await tryOpenLoginModal(page, meta);
-    if (probe.modalVisible) {
-        return { required: true, source: probe.source };
-    }
-    return { required: false, source: probe.source };
 }
 
 async function detectNoCutoutBackground(page) {
@@ -585,14 +517,9 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         logger.info('适配器', '开启新会话...', meta);
         await gotoWithCheck(page, TARGET_URL);
 
-        progress.mark('auth_probe', 16, '检测登录弹窗状态');
-        const authProbe = await probeAuthState(page, meta);
-        if (authProbe.required) {
-            const dismissed = await dismissLoginModal(page, meta);
-            if (!dismissed) {
-                return buildAuthRequiredError(progress, authProbe.source);
-            }
-            progress.mark('auth_probe', 20, '检测到登录弹窗，已尝试关闭后继续');
+        progress.mark('check_auth_limit', 16, '检测账号可用性');
+        if (await detectLoginLimit(page)) {
+            return buildAuthRequiredError(progress, 'quota_limit_before_generate');
         }
 
         // 1. 进入图片生成模式
@@ -714,6 +641,10 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         } catch (e) {
             if (!e?.message?.startsWith('API_TIMEOUT:')) throw e;
 
+            if (await detectLoginLimit(page)) {
+                return buildAuthRequiredError(progress, 'quota_limit_after_send');
+            }
+
             logger.warn('适配器', 'SSE 等待超时，尝试页面结果兜底提取...', meta);
             const fallbackCandidates = await waitForGeneratedImageCandidates(page, FALLBACK_PAGE_WAIT_TIMEOUT_MS, meta);
             if (fallbackCandidates.length > 0) {
@@ -766,9 +697,8 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         }, progress, { status: 'success' });
 
     } catch (err) {
-        const authProbe = await probeAuthState(page, meta);
-        if (authProbe.required) {
-            return buildAuthRequiredError(progress, authProbe.source);
+        if (await detectLoginLimit(page)) {
+            return buildAuthRequiredError(progress, 'quota_limit_error');
         }
 
         const pageError = normalizePageError(err, meta);
@@ -856,21 +786,29 @@ function extractRawImages(payload) {
                     if (Array.isArray(creations)) {
                         for (const creation of creations) {
                             const candidates = [
+                                // 优先顺序：原图 raw > 其他降级链接
                                 creation.image?.image_ori_raw?.url,
                                 creation.image?.image_raw?.url,
                                 creation.image?.image_ori?.url,
                                 creation.image?.url,
                                 creation.image_url,
                                 creation?.url
-                            ].filter(Boolean);
+                            ];
 
-                            for (const u of candidates) {
-                                if (typeof u !== 'string') continue;
-                                if (!/^https?:\/\//i.test(u)) continue;
-                                if (seen.has(u)) continue;
-                                seen.add(u);
-                                urls.push(u);
-                            }
+                            const validCandidates = candidates.filter(u => {
+                                if (typeof u !== 'string') return false;
+                                return /^https?:\/\//i.test(u);
+                            });
+
+                            if (validCandidates.length === 0) continue;
+
+                            // 避免同一张图同时返回「原图+带水印图」
+                            const nonWatermark = validCandidates.find(u => !/(watermark|water_mark|add_logo|wm=|logo=)/i.test(u));
+                            const picked = nonWatermark || validCandidates[0];
+
+                            if (!picked || seen.has(picked)) continue;
+                            seen.add(picked);
+                            urls.push(picked);
                         }
                     }
                 }

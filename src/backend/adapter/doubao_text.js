@@ -17,6 +17,81 @@ import { logger } from '../../utils/logger.js';
 
 // --- 配置常量 ---
 const TARGET_URL = 'https://www.doubao.com/chat/';
+const MODE_LABEL_MAP = {
+    'seed': [/^快速$/i, /fast/i],
+    'seed-thinking': [/^思考$/i, /think/i],
+    'seed-pro': [/^专家$/i, /expert/i, /\bpro\b/i]
+};
+
+async function isVisible(locator, timeout = 1200) {
+    try {
+        await locator.first().waitFor({ state: 'visible', timeout });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function findFirstVisible(candidates, timeout = 2000) {
+    for (const candidate of candidates) {
+        const target = candidate.first ? candidate.first() : candidate;
+        if (await isVisible(target, timeout)) return target;
+    }
+    return null;
+}
+
+async function switchTextMode(page, modelId, meta = {}) {
+    const targetPatterns = MODE_LABEL_MAP[modelId] || MODE_LABEL_MAP['seed'];
+    const modeDesc = modelId || 'seed';
+    const modeOrder = { 'seed': 0, 'seed-thinking': 1, 'seed-pro': 2 };
+
+    const modelSelectorBtn = await findFirstVisible([
+        page.locator('button[aria-haspopup="menu"]:has(div[data-testid="deep-thinking-action-button"])'),
+        page.locator('button[aria-haspopup="menu"]').filter({ hasText: /快速|思考|专家|Fast|Think|Pro|Expert/i }),
+        page.getByRole('button', { name: /快速|思考|专家|Fast|Think|Pro|Expert/i })
+    ], 3500);
+
+    if (!modelSelectorBtn) {
+        logger.warn('适配器', `[文本模式] 未找到模式切换按钮，继续使用页面当前模式`, { ...meta, modelId: modeDesc });
+        return { skipped: true };
+    }
+
+    await safeClick(page, modelSelectorBtn, { bias: 'button' });
+    await sleep(250, 450);
+
+    for (const pattern of targetPatterns) {
+        const menuItem = await findFirstVisible([
+            page.getByRole('menuitem', { name: pattern }),
+            page.locator('div[role="menuitem"],li[role="menuitem"],button[role="menuitem"]').filter({ hasText: pattern }),
+            page.getByText(pattern)
+        ], 3500);
+
+        if (!menuItem) continue;
+
+        await safeClick(page, menuItem, { bias: 'button' });
+        await sleep(200, 350);
+        logger.info('适配器', `[文本模式] 已切换到 ${modeDesc}`, meta);
+        return { success: true };
+    }
+
+    // 兜底：使用键盘从菜单顶部按顺序选择（0=快速,1=思考,2=专家）
+    const idx = modeOrder[modelId];
+    if (Number.isInteger(idx) && idx > 0) {
+        try {
+            for (let i = 0; i < idx; i++) {
+                await page.keyboard.press('ArrowDown');
+                await sleep(80, 160);
+            }
+            await page.keyboard.press('Enter');
+            await sleep(220, 360);
+            logger.info('适配器', `[文本模式] 使用键盘兜底切换到 ${modeDesc}`, meta);
+            return { success: true, fallback: 'keyboard' };
+        } catch { }
+    }
+
+    logger.warn('适配器', `[文本模式] 未找到模式选项 ${modeDesc}，继续使用页面当前模式`, meta);
+    return { skipped: true };
+}
 
 /**
  * 执行文本生成任务
@@ -33,13 +108,6 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 
     // 是否使用深度思考模式
     const useThinking = modelId === 'seed-thinking' || modelId === 'seed-pro';
-
-    // 模型 ID 到菜单项无障碍名称的映射
-    const MODEL_MENU_MAP = {
-        'seed': 'Fast Solves most questions',
-        'seed-thinking': 'Think Solves more complex problems',
-        'seed-pro': 'Pro Advanced Pro model'
-    };
 
     try {
         logger.info('适配器', '开启新会话...', meta);
@@ -95,28 +163,8 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         }
 
         // 3. 选择模型
-        const modelMenuName = MODEL_MENU_MAP[modelId] || MODEL_MENU_MAP['seed'];
-        logger.debug('适配器', `选择模型: ${modelId} -> ${modelMenuName}`, meta);
-
-        // 给予 3 秒的缓冲时间等待 React 渲染按钮
-        const modelSelectorBtn = page.locator('button[aria-haspopup="menu"]:has(div[data-testid="deep-thinking-action-button"])').first();
-        let selectorExists = false;
-        try {
-            await modelSelectorBtn.waitFor({ state: 'attached', timeout: 3000 });
-            selectorExists = true;
-        } catch (e) {
-            selectorExists = false;
-        }
-
-        if (selectorExists) {
-            await safeClick(page, modelSelectorBtn, { bias: 'button' });
-            await sleep(300, 500);
-
-            const menuItem = page.getByRole('menuitem', { name: modelMenuName });
-            await menuItem.waitFor({ state: 'visible', timeout: 5000 });
-            await safeClick(page, menuItem, { bias: 'button' });
-            await sleep(200, 400);
-        }
+        logger.debug('适配器', `尝试切换文本模式: ${modelId || 'seed'}`, meta);
+        await switchTextMode(page, modelId, meta);
 
         // 4. 填写提示词
         await safeClick(page, inputLocator, { bias: 'input' });

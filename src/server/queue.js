@@ -200,8 +200,15 @@ export function createQueueManager(queueConfig, callbacks) {
             let finalContent = '';
             let reasoningContent = null;  // 思考过程内容
             let historyResponseText = '';  // 历史记录中存储的文本（不含 base64）
+            const hasMultipleImages = Array.isArray(result.images) && result.images.length > 1;
 
-            if (result.image) {
+            // 多图优先返回 markdown（包含所有图片），避免被单图分支截断
+            if (hasMultipleImages && result.text) {
+                finalContent = result.text;
+                historyResponseText = Array.isArray(result.imageUrls) && result.imageUrls.length > 0
+                    ? result.imageUrls.join('\n')
+                    : result.text;
+            } else if (result.image) {
                 const wmResult = await applyWatermarkRemover(result.image, config, { id });
                 if (wmResult.error) {
                     logger.warn('服务器', `图片后处理失败，已回退原图: ${wmResult.error}`, { id });

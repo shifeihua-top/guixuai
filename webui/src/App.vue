@@ -53,6 +53,26 @@ const chatImageList = ref([]);
 const chatStreamMode = ref(false);
 const chatStreamContent = ref('');
 
+const createHealthStep = () => ({
+  status: 'pending',
+  detail: '',
+  error: '',
+  content: '',
+  model: ''
+});
+
+const createHealthCheckState = () => ({
+  status: 'idle',
+  startedAt: null,
+  finishedAt: null,
+  service: createHealthStep(),
+  login: createHealthStep(),
+  qa: createHealthStep(),
+  image: createHealthStep()
+});
+
+const healthCheck = ref(createHealthCheckState());
+
 // 获取模型列表
 const fetchModelList = async () => {
   try {
@@ -129,6 +149,15 @@ const base64ToBlob = (dataUri) => {
 const parseMarkdownImages = (content) => {
   if (!content) return { text: '', images: [], videos: [] };
 
+  // 直接图片 data URI
+  if (content.trim().startsWith('data:image/')) {
+    return {
+      text: '',
+      images: [{ alt: '生成图片', src: content.trim(), type: 'image' }],
+      videos: []
+    };
+  }
+
   // 检测是否是直接的 data:video/ 内容（非 markdown 格式）
   if (content.trim().startsWith('data:video/')) {
     try {
@@ -176,6 +205,174 @@ const parseMarkdownImages = (content) => {
     images,
     videos: []
   };
+};
+
+const parseErrorMessage = async (res) => {
+  try {
+    const data = await res.json();
+    const message = data?.error?.message || `HTTP ${res.status}`;
+    const details = data?.error?.details;
+    if (details?.stage || details?.progress !== undefined || details?.situation) {
+      const part = [
+        details.stage ? `stage=${details.stage}` : '',
+        details.progress !== undefined ? `progress=${details.progress}%` : '',
+        details.situation ? `situation=${details.situation}` : ''
+      ].filter(Boolean).join(', ');
+      return part ? `${message} (${part})` : message;
+    }
+    return message;
+  } catch {
+    return `HTTP ${res.status}`;
+  }
+};
+
+const runHealthCheck = async () => {
+  healthCheck.value = createHealthCheckState();
+  healthCheck.value.status = 'running';
+  healthCheck.value.startedAt = Date.now();
+
+  const headers = settingsStore.getHeaders();
+
+  // 1) 服务状态
+  healthCheck.value.service.status = 'loading';
+  try {
+    const res = await fetch('/admin/status', { headers });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    healthCheck.value.service.status = 'success';
+    healthCheck.value.service.detail = `运行中，队列 ${data.totalTasks ?? 0}，CPU ${data.cpuUsage ?? 0}%`;
+  } catch (e) {
+    healthCheck.value.service.status = 'error';
+    healthCheck.value.service.error = e.message || '服务状态检查失败';
+  }
+
+  // 2) 登录态（cookies）
+  healthCheck.value.login.status = 'loading';
+  try {
+    const res = await fetch('/v1/cookies', { headers });
+    if (!res.ok) {
+      healthCheck.value.login.status = 'error';
+      healthCheck.value.login.error = await parseErrorMessage(res);
+    } else {
+      const data = await res.json();
+      const cookieCount = data?.cookies?.length || 0;
+      if (cookieCount > 0) {
+        healthCheck.value.login.status = 'success';
+        healthCheck.value.login.detail = `已读取 ${cookieCount} 个 Cookie`;
+      } else {
+        healthCheck.value.login.status = 'error';
+        healthCheck.value.login.error = 'Cookie 数量为 0，登录态可能失效';
+      }
+    }
+  } catch (e) {
+    healthCheck.value.login.status = 'error';
+    healthCheck.value.login.error = e.message || '登录态检查失败';
+  }
+
+  // 模型列表（用于问答/生图检查）
+  let models = [];
+  try {
+    const modelRes = await fetch('/v1/models', { headers });
+    if (modelRes.ok) {
+      const data = await modelRes.json();
+      models = data?.data || [];
+      chatModelList.value = models;
+      if (models.length > 0 && !chatTestModel.value) {
+        chatTestModel.value = models[0].id;
+      }
+    }
+  } catch {
+    // 忽略模型列表失败，后续按现有默认模型尝试
+  }
+
+  const textModels = models.filter(m => m.type === 'text');
+  const imageModels = models.filter(m => m.type !== 'text');
+  if (healthCheck.value.service.status === 'success') {
+    healthCheck.value.service.detail += `，文本模型 ${textModels.length}，生图模型 ${imageModels.length}`;
+  }
+
+  const preferredText = textModels.find(m => /doubao_text\/seed$/.test(m.id))
+    || textModels.find(m => m.id === 'seed')
+    || textModels[0]
+    || null;
+  const preferredImage = imageModels.find(m => /seedream/i.test(m.id))
+    || imageModels[0]
+    || null;
+
+  const textModel = preferredText?.id || '';
+  const imageModel = preferredImage?.id || '';
+
+  // 3) 问答模式可用性
+  healthCheck.value.qa.status = 'loading';
+  healthCheck.value.qa.model = textModel;
+  if (!textModel) {
+    healthCheck.value.qa.status = 'error';
+    healthCheck.value.qa.error = '当前服务未加载文本模型，请检查 doubao_text Worker 是否初始化成功';
+  } else {
+    try {
+      const qaRes = await fetch('/v1/chat/completions', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: textModel,
+          messages: [{ role: 'user', content: '请只回复：健康检查OK' }],
+          stream: false
+        })
+      });
+      if (!qaRes.ok) {
+        healthCheck.value.qa.status = 'error';
+        healthCheck.value.qa.error = await parseErrorMessage(qaRes);
+      } else {
+        const qaData = await qaRes.json();
+        healthCheck.value.qa.content = qaData?.choices?.[0]?.message?.content || '';
+        healthCheck.value.qa.status = healthCheck.value.qa.content ? 'success' : 'error';
+        if (!healthCheck.value.qa.content) {
+          healthCheck.value.qa.error = '问答模式无返回内容';
+        }
+      }
+    } catch (e) {
+      healthCheck.value.qa.status = 'error';
+      healthCheck.value.qa.error = e.message || '问答模式检查失败';
+    }
+  }
+
+  // 4) 生图模式可用性
+  healthCheck.value.image.status = 'loading';
+  healthCheck.value.image.model = imageModel;
+  if (!imageModel) {
+    healthCheck.value.image.status = 'error';
+    healthCheck.value.image.error = '当前服务未加载生图模型，请检查 doubao Worker 是否初始化成功';
+  } else {
+    try {
+      const imageRes = await fetch('/v1/chat/completions', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: imageModel,
+          messages: [{ role: 'user', content: '生成一张蓝色圆点的极简测试图片' }],
+          stream: false
+        })
+      });
+      if (!imageRes.ok) {
+        healthCheck.value.image.status = 'error';
+        healthCheck.value.image.error = await parseErrorMessage(imageRes);
+      } else {
+        const imageData = await imageRes.json();
+        healthCheck.value.image.content = imageData?.choices?.[0]?.message?.content || '';
+        const parsed = parseMarkdownImages(healthCheck.value.image.content);
+        healthCheck.value.image.status = parsed.images.length > 0 ? 'success' : 'error';
+        if (parsed.images.length === 0) {
+          healthCheck.value.image.error = '生图模式未返回可展示图片';
+        }
+      }
+    } catch (e) {
+      healthCheck.value.image.status = 'error';
+      healthCheck.value.image.error = e.message || '生图模式检查失败';
+    }
+  }
+
+  healthCheck.value.status = 'done';
+  healthCheck.value.finishedAt = Date.now();
 };
 
 const testApi = async (type) => {
@@ -482,6 +679,72 @@ onMounted(async () => {
     <!-- 接口测试抽屉 -->
     <a-drawer v-model:open="apiTestDrawer" title="接口测试" placement="right" :width="isMobile ? '100%' : 500">
       <a-space direction="vertical" style="width: 100%" size="large">
+        <!-- 一键健康检查 -->
+        <a-card title="一键健康检查（服务/登录态/问答/生图）" size="small">
+          <template #extra>
+            <a-button size="small" type="primary" @click="runHealthCheck" :loading="healthCheck.status === 'running'">
+              运行检查
+            </a-button>
+          </template>
+
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="min-width: 72px; color: #8c8c8c;">服务状态</span>
+              <a-tag v-if="healthCheck.service.status === 'success'" color="success"><CheckCircleOutlined /> 正常</a-tag>
+              <a-tag v-else-if="healthCheck.service.status === 'loading'" color="processing"><LoadingOutlined /> 检查中</a-tag>
+              <a-tag v-else-if="healthCheck.service.status === 'error'" color="error"><CloseCircleOutlined /> 异常</a-tag>
+              <a-tag v-else>待检查</a-tag>
+            </div>
+            <div v-if="healthCheck.service.detail" style="font-size: 12px; color: #8c8c8c;">{{ healthCheck.service.detail }}</div>
+            <div v-if="healthCheck.service.error" style="font-size: 12px; color: #ff4d4f;">{{ healthCheck.service.error }}</div>
+
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="min-width: 72px; color: #8c8c8c;">登录态</span>
+              <a-tag v-if="healthCheck.login.status === 'success'" color="success"><CheckCircleOutlined /> 有效</a-tag>
+              <a-tag v-else-if="healthCheck.login.status === 'loading'" color="processing"><LoadingOutlined /> 检查中</a-tag>
+              <a-tag v-else-if="healthCheck.login.status === 'error'" color="error"><CloseCircleOutlined /> 失效</a-tag>
+              <a-tag v-else>待检查</a-tag>
+            </div>
+            <div v-if="healthCheck.login.detail" style="font-size: 12px; color: #8c8c8c;">{{ healthCheck.login.detail }}</div>
+            <div v-if="healthCheck.login.error" style="font-size: 12px; color: #ff4d4f;">{{ healthCheck.login.error }}</div>
+
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="min-width: 72px; color: #8c8c8c;">问答模式</span>
+              <a-tag v-if="healthCheck.qa.status === 'success'" color="success"><CheckCircleOutlined /> 可用</a-tag>
+              <a-tag v-else-if="healthCheck.qa.status === 'loading'" color="processing"><LoadingOutlined /> 检查中</a-tag>
+              <a-tag v-else-if="healthCheck.qa.status === 'error'" color="error"><CloseCircleOutlined /> 不可用</a-tag>
+              <a-tag v-else>待检查</a-tag>
+              <a-tag v-if="healthCheck.qa.model" color="blue">{{ healthCheck.qa.model }}</a-tag>
+            </div>
+            <div v-if="healthCheck.qa.content" style="font-size: 12px; background: #fafafa; border-radius: 4px; padding: 8px;">
+              <div style="color: #8c8c8c; margin-bottom: 4px;">问答返回内容</div>
+              <pre style="white-space: pre-wrap; word-break: break-all; margin: 0;">{{ healthCheck.qa.content }}</pre>
+            </div>
+            <div v-if="healthCheck.qa.error" style="font-size: 12px; color: #ff4d4f;">{{ healthCheck.qa.error }}</div>
+
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="min-width: 72px; color: #8c8c8c;">生图模式</span>
+              <a-tag v-if="healthCheck.image.status === 'success'" color="success"><CheckCircleOutlined /> 可用</a-tag>
+              <a-tag v-else-if="healthCheck.image.status === 'loading'" color="processing"><LoadingOutlined /> 检查中</a-tag>
+              <a-tag v-else-if="healthCheck.image.status === 'error'" color="error"><CloseCircleOutlined /> 不可用</a-tag>
+              <a-tag v-else>待检查</a-tag>
+              <a-tag v-if="healthCheck.image.model" color="blue">{{ healthCheck.image.model }}</a-tag>
+            </div>
+            <div
+              v-if="healthCheck.image.content && parseMarkdownImages(healthCheck.image.content).images.length > 0"
+              style="display: flex; flex-direction: column; gap: 8px;">
+              <div style="font-size: 12px; color: #8c8c8c;">生图返回图片</div>
+              <div
+                v-for="(img, index) in parseMarkdownImages(healthCheck.image.content).images"
+                :key="'health-img-' + index"
+                style="border: 1px solid #d9d9d9; border-radius: 4px; padding: 4px; background: white;">
+                <img :src="img.src" :alt="img.alt" style="max-width: 100%; height: auto; display: block; border-radius: 2px;" />
+              </div>
+            </div>
+            <div v-if="healthCheck.image.error" style="font-size: 12px; color: #ff4d4f;">{{ healthCheck.image.error }}</div>
+          </div>
+        </a-card>
+
         <!-- Models 接口 -->
         <a-card title="GET /v1/models" size="small">
           <template #extra>
