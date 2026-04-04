@@ -232,9 +232,15 @@ export function getBrowserConfig() {
     const browser = config.browser || {};
     const proxy = browser.proxy || {};
     const cssInject = browser.cssInject || {};
+    const visibilityMode = browser.visibilityMode === 'background'
+        ? 'background'
+        : (browser.visibilityMode === 'foreground'
+            ? 'foreground'
+            : (browser.headless ? 'background' : 'foreground'));
 
     return {
         path: browser.path || '',
+        visibilityMode,
         headless: browser.headless || false,
         fission: browser.fission !== false, // 默认 true
         humanizeCursor: browser.humanizeCursor ?? true, // false | true | 'camou'
@@ -265,7 +271,15 @@ export function saveBrowserConfig(data) {
     if (!config.browser) config.browser = {};
 
     if (data.path !== undefined) config.browser.path = data.path;
-    if (data.headless !== undefined) config.browser.headless = data.headless;
+    if (data.visibilityMode !== undefined) {
+        const mode = data.visibilityMode === 'background' ? 'background' : 'foreground';
+        config.browser.visibilityMode = mode;
+        // 兼容旧逻辑：同步写入 headless
+        config.browser.headless = mode === 'background';
+    } else if (data.headless !== undefined) {
+        config.browser.headless = data.headless;
+        config.browser.visibilityMode = data.headless ? 'background' : 'foreground';
+    }
     if (data.fission !== undefined) config.browser.fission = data.fission;
     if (data.humanizeCursor !== undefined) config.browser.humanizeCursor = data.humanizeCursor;
 

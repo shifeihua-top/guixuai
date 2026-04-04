@@ -237,7 +237,13 @@ browser:
   # Linux系统示例 "/opt/camoufox/camoufox"
   path: ""
   
-  # 是否启用无头模式
+  # Camoufox 可见性模式
+  # foreground: 前台模式（浏览器可见，便于排查）
+  # background: 后台模式（浏览器不可见，适合长期运行）
+  visibilityMode: foreground
+
+  # 兼容字段（旧版本使用）
+  # 建议优先使用 visibilityMode，本字段会自动与其同步
   headless: false
 
   # 拟人鼠标轨迹模式

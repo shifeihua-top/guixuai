@@ -7,7 +7,7 @@ const settingsStore = useSettingsStore();
 // 表单数据
 const formData = reactive({
     path: '',
-    headless: false,
+    visibilityMode: 'foreground', // foreground | background
     fission: true,
     humanizeCursor: false, // false | true | 'camou'
     // CSS 性能优化
@@ -28,7 +28,7 @@ onMounted(async () => {
     await settingsStore.fetchBrowserConfig();
     const cfg = settingsStore.browserConfig || {};
     formData.path = cfg.path || '';
-    formData.headless = cfg.headless || false;
+    formData.visibilityMode = cfg.visibilityMode || (cfg.headless ? 'background' : 'foreground');
     formData.fission = cfg.fission !== false; // 默认 true
     // humanizeCursor: false=禁用, true=ghost-cursor, 'camou'=Camoufox内置
     formData.humanizeCursor = cfg.humanizeCursor ?? false;
@@ -55,7 +55,9 @@ onMounted(async () => {
 const handleSave = async () => {
     const config = {
         path: formData.path,
-        headless: formData.headless,
+        visibilityMode: formData.visibilityMode,
+        // 保留旧字段兼容
+        headless: formData.visibilityMode === 'background',
         cssInject: {
             animation: formData.cssAnimation,
             filter: formData.cssFilter,
@@ -94,18 +96,19 @@ const handleSave = async () => {
                     </div>
                 </a-col>
 
-                <!-- 无头模式 -->
+                <!-- Camoufox 可见性模式 -->
                 <a-col :xs="24" :md="12">
                     <div style="margin-bottom: 8px;">
-                        <div style="font-weight: 600; margin-bottom: 4px;">无头模式</div>
+                        <div style="font-weight: 600; margin-bottom: 4px;">Camoufox 可见性模式</div>
                         <div style="font-size: 12px; color: #8c8c8c; margin-bottom: 8px;">
-                            启用后浏览器无界面化运行<br>
-                            登录模式和 Xvfb 模式会无视该设置强行禁用无头模式
+                            前台模式：浏览器界面可见，便于排查与人工观察<br>
+                            后台模式：浏览器界面隐藏，适合长期运行节省资源<br>
+                            登录模式和 Xvfb 模式会强制使用前台模式
                         </div>
-                        <a-switch v-model:checked="formData.headless" />
-                        <span style="margin-left: 8px;">
-                            {{ formData.headless ? '已启用' : '未启用' }}
-                        </span>
+                        <a-segmented v-model:value="formData.visibilityMode" block :options="[
+                            { label: '前台模式', value: 'foreground' },
+                            { label: '后台模式', value: 'background' }
+                        ]" />
                     </div>
                 </a-col>
 

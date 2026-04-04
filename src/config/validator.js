@@ -120,6 +120,13 @@ export function validateBrowserConfig(data) {
         errors.push('headless 必须是布尔值');
     }
 
+    // 可见性模式校验
+    if (data.visibilityMode !== undefined) {
+        if (!['foreground', 'background'].includes(data.visibilityMode)) {
+            errors.push('visibilityMode 必须是 foreground 或 background');
+        }
+    }
+
     // Fission 校验
     if (data.fission !== undefined && typeof data.fission !== 'boolean') {
         errors.push('fission 必须是布尔值');

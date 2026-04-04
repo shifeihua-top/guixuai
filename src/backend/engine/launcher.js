@@ -295,14 +295,20 @@ export async function initBrowserBase(config, options = {}) {
     // 检测登录模式和 Xvfb 模式
     const isLoginMode = process.argv.some(arg => arg.startsWith('-login'));
     const isXvfbMode = process.env.XVFB_RUNNING === 'true';
-    const headlessMode = config?.browser?.headless && !isLoginMode && !isXvfbMode;
+    const browserCfg = config?.browser || {};
+    const requestedVisibilityMode = browserCfg.visibilityMode === 'background'
+        ? 'background'
+        : (browserCfg.visibilityMode === 'foreground'
+            ? 'foreground'
+            : (browserCfg.headless ? 'background' : 'foreground'));
+    const headlessMode = requestedVisibilityMode === 'background' && !isLoginMode && !isXvfbMode;
 
-    // 如果配置了无头模式但被强制禁用，输出原因
-    if (config?.browser?.headless && !headlessMode) {
+    // 如果配置了后台模式但被强制禁用，输出原因
+    if (requestedVisibilityMode === 'background' && !headlessMode) {
         const reasons = [];
         if (isLoginMode) reasons.push('登录模式');
         if (isXvfbMode) reasons.push('Xvfb 模式');
-        logger.info('浏览器', `[${markLabel}] 无头模式已被禁用 (${reasons.join(' + ')})`);
+        logger.info('浏览器', `[${markLabel}] 后台模式已被禁用 (${reasons.join(' + ')})`);
     }
 
     logger.info('浏览器', `[${markLabel}] 启动浏览器实例...`);
@@ -367,6 +373,7 @@ export async function initBrowserBase(config, options = {}) {
 
     // 构建状态描述
     const statusParts = [];
+    statusParts.push(`可见性模式: ${headlessMode ? '后台' : '前台'}`);
     statusParts.push(`无头模式: ${headlessMode ? '是' : '否'}`);
     statusParts.push(`页面缩放: ${pageScale}`);
     if (headfulWindowSize) statusParts.push(`窗口尺寸: ${headfulWindowSize.width}x${headfulWindowSize.height}`);
