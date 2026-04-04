@@ -10,13 +10,13 @@
 
 ## 1. 已封装工具
 
-- `voidhub_list_models`
+- `guixuai_list_models`
   - 对应：`GET /v1/models`
-- `voidhub_chat_completion`
+- `guixuai_chat_completion`
   - 对应：`POST /v1/chat/completions`
-- `voidhub_image_edit`
+- `guixuai_image_edit`
   - 对应：`POST /v1/chat/completions`（图像编辑封装）
-- `voidhub_get_cookies`
+- `guixuai_get_cookies`
   - 对应：`GET /v1/cookies`
 
 ## 2. 启动方式
@@ -33,14 +33,14 @@ node scripts/mcp/server.mjs
 
 ## 3. 必要环境变量
 
-- `VOIDHUB_BASE_URL`：默认 `http://127.0.0.1:3000`
-- `VOIDHUB_API_TOKEN`：服务鉴权 token（必填）
+- `GUIXUAI_BASE_URL`：默认 `http://127.0.0.1:3000`
+- `GUIXUAI_API_TOKEN`：服务鉴权 token（必填）
 
 示例：
 
 ```bash
-VOIDHUB_BASE_URL=http://127.0.0.1:3000 \
-VOIDHUB_API_TOKEN=sk-your-token \
+GUIXUAI_BASE_URL=http://127.0.0.1:3000 \
+GUIXUAI_API_TOKEN=sk-your-token \
 node scripts/mcp/server.mjs
 ```
 
@@ -51,12 +51,12 @@ node scripts/mcp/server.mjs
 ```json
 {
   "mcpServers": {
-    "voidhub": {
+    "guixuai": {
       "command": "node",
       "args": ["/Users/shifeihua/WebtoAPI/scripts/mcp/server.mjs"],
       "env": {
-        "VOIDHUB_BASE_URL": "http://127.0.0.1:3000",
-        "VOIDHUB_API_TOKEN": "sk-your-token"
+        "GUIXUAI_BASE_URL": "http://127.0.0.1:3000",
+        "GUIXUAI_API_TOKEN": "sk-your-token"
       }
     }
   }
@@ -65,10 +65,10 @@ node scripts/mcp/server.mjs
 
 ## 5. 调用建议
 
-- 先调用 `voidhub_list_models` 获取模型
-- 文本任务优先用 `voidhub_chat_completion`
-- 图像任务优先用 `voidhub_image_edit`
-- 若会话异常，用 `voidhub_get_cookies` 排查
+- 先调用 `guixuai_list_models` 获取模型
+- 文本任务优先用 `guixuai_chat_completion`
+- 图像任务优先用 `guixuai_image_edit`
+- 若会话异常，用 `guixuai_get_cookies` 排查
 
 ## 6. MCP 工具调用示例
 
@@ -78,7 +78,7 @@ node scripts/mcp/server.mjs
 
 ```json
 {
-  "name": "voidhub_list_models",
+  "name": "guixuai_list_models",
   "arguments": {}
 }
 ```
@@ -87,7 +87,7 @@ node scripts/mcp/server.mjs
 
 ```json
 {
-  "name": "voidhub_chat_completion",
+  "name": "guixuai_chat_completion",
   "arguments": {
     "model": "seed-thinking",
     "prompt": "用三点总结这个网关的价值",
@@ -100,7 +100,7 @@ node scripts/mcp/server.mjs
 
 ```json
 {
-  "name": "voidhub_chat_completion",
+  "name": "guixuai_chat_completion",
   "arguments": {
     "model": "seedream-4.5",
     "messages": [
@@ -120,7 +120,7 @@ node scripts/mcp/server.mjs
 
 ```json
 {
-  "name": "voidhub_image_edit",
+  "name": "guixuai_image_edit",
   "arguments": {
     "model": "seedream-4.5",
     "prompt": "保留主体，改为纯白背景",
@@ -134,7 +134,7 @@ node scripts/mcp/server.mjs
 
 ```json
 {
-  "name": "voidhub_get_cookies",
+  "name": "guixuai_get_cookies",
   "arguments": {
     "name": "browser_default",
     "domain": "jd.com"
@@ -144,9 +144,9 @@ node scripts/mcp/server.mjs
 
 ## 7. 常见问题
 
-- 报错 `VOIDHUB_API_TOKEN is required`
-  - 未配置 `VOIDHUB_API_TOKEN`
+- 报错 `GUIXUAI_API_TOKEN is required`
+  - 未配置 `GUIXUAI_API_TOKEN`
 - 报错 `HTTP 401`
   - token 无效或服务鉴权配置已变更
 - 报错连接失败
-  - 检查 `VOIDHUB_BASE_URL` 与服务是否已启动
+  - 检查 `GUIXUAI_BASE_URL` 与服务是否已启动

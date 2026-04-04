@@ -27,7 +27,7 @@ import urllib.request
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="VoidHub OpenAI-compatible client")
+    parser = argparse.ArgumentParser(description="GuiXuAI OpenAI-compatible client")
     parser.add_argument("--base-url", default="http://127.0.0.1:3000", help="API base URL")
     parser.add_argument("--token", default=os.getenv("API_TOKEN"), help="Bearer token")
     parser.add_argument("--model", default="seed", help="Model id")
@@ -104,4 +104,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

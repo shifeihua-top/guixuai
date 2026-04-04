@@ -1,22 +1,27 @@
 #!/usr/bin/env node
 /**
- * VoidHub MCP server (stdio, JSON-RPC framing).
- * Exposes existing VoidHub HTTP APIs as MCP tools for OpenClaw or any MCP client.
+ * GuiXuAI MCP server (stdio, JSON-RPC framing).
+ * Exposes existing GuiXuAI HTTP APIs as MCP tools for OpenClaw or any MCP client.
  */
 
 import fs from "fs/promises";
 import path from "path";
 
-const SERVER_NAME = "voidhub-mcp";
+const SERVER_NAME = "guixuai-mcp";
 const SERVER_VERSION = "0.1.0";
 const DEFAULT_PROTOCOL_VERSION = "2024-11-05";
 
-const BASE_URL = (process.env.VOIDHUB_BASE_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
-const API_TOKEN = process.env.VOIDHUB_API_TOKEN || "";
+const BASE_URL = (process.env.GUIXUAI_BASE_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
+const API_TOKEN = process.env.GUIXUAI_API_TOKEN || "";
+
+const TOOL_NAME_LIST_MODELS = "guixuai_list_models";
+const TOOL_NAME_CHAT_COMPLETION = "guixuai_chat_completion";
+const TOOL_NAME_IMAGE_EDIT = "guixuai_image_edit";
+const TOOL_NAME_GET_COOKIES = "guixuai_get_cookies";
 
 const tools = [
   {
-    name: "voidhub_list_models",
+    name: TOOL_NAME_LIST_MODELS,
     description: "List currently available models from /v1/models.",
     inputSchema: {
       type: "object",
@@ -25,7 +30,7 @@ const tools = [
     },
   },
   {
-    name: "voidhub_chat_completion",
+    name: TOOL_NAME_CHAT_COMPLETION,
     description: "Call /v1/chat/completions for text or multimodal generation.",
     inputSchema: {
       type: "object",
@@ -47,7 +52,7 @@ const tools = [
     },
   },
   {
-    name: "voidhub_image_edit",
+    name: TOOL_NAME_IMAGE_EDIT,
     description:
       "Edit or transform a local image using /v1/chat/completions with image input. Optionally saves output image file.",
     inputSchema: {
@@ -67,7 +72,7 @@ const tools = [
     },
   },
   {
-    name: "voidhub_get_cookies",
+    name: TOOL_NAME_GET_COOKIES,
     description: "Query cookies from /v1/cookies for troubleshooting login/session.",
     inputSchema: {
       type: "object",
@@ -83,7 +88,7 @@ const tools = [
 function ensureAuth() {
   if (!API_TOKEN) {
     throw new Error(
-      "VOIDHUB_API_TOKEN is required. Set it in MCP server env before starting."
+      "GUIXUAI_API_TOKEN is required. Set GUIXUAI_API_TOKEN before starting."
     );
   }
 }
@@ -164,12 +169,12 @@ function extByMime(mime) {
 }
 
 async function callTool(name, args = {}) {
-  if (name === "voidhub_list_models") {
+  if (name === TOOL_NAME_LIST_MODELS) {
     const data = await apiFetch("/v1/models");
     return toTextResult(JSON.stringify(data, null, 2));
   }
 
-  if (name === "voidhub_chat_completion") {
+  if (name === TOOL_NAME_CHAT_COMPLETION) {
     const { model, prompt, messages, stream = false, ...rest } = args;
     if (!model) throw new Error("model is required");
     const finalMessages = prompt
@@ -195,7 +200,7 @@ async function callTool(name, args = {}) {
     return toTextResult(JSON.stringify(data, null, 2));
   }
 
-  if (name === "voidhub_image_edit") {
+  if (name === TOOL_NAME_IMAGE_EDIT) {
     const { model = "seedream-4.5", prompt, image_path, output_path } = args;
     if (!prompt) throw new Error("prompt is required");
     if (!image_path) throw new Error("image_path is required");
@@ -252,7 +257,7 @@ async function callTool(name, args = {}) {
     return toTextResult(JSON.stringify(data, null, 2));
   }
 
-  if (name === "voidhub_get_cookies") {
+  if (name === TOOL_NAME_GET_COOKIES) {
     const params = new URLSearchParams();
     if (args.name) params.set("name", args.name);
     if (args.domain) params.set("domain", args.domain);
@@ -357,4 +362,3 @@ function parseBuffer() {
     });
   }
 }
-

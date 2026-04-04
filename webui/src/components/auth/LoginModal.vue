@@ -56,7 +56,7 @@ const handleLogin = async () => {
                     </template>
                 </a-avatar>
                 <div style="margin-top: 16px; font-size: 16px; font-weight: 500;">
-                    VoidHub (GuiXuAI / 万智归墟) 管理面板
+                    GuiXuAI (万智归墟) 管理面板
                 </div>
                 <div style="color: #8c8c8c; margin-top: 8px;">
                     请输入访问 API Token 以继续

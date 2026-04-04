@@ -317,8 +317,8 @@ node scripts/examples/js_stream.mjs \
 本项目内置 MCP Server，可将 HTTP API 以 MCP tools 形式暴露给支持 MCP 的客户端：
 
 ```bash
-VOIDHUB_BASE_URL=http://127.0.0.1:3000 \
-VOIDHUB_API_TOKEN=sk-your-token \
+GUIXUAI_BASE_URL=http://127.0.0.1:3000 \
+GUIXUAI_API_TOKEN=sk-your-token \
 npm run mcp:start
 ```
 
@@ -327,12 +327,12 @@ npm run mcp:start
 ```json
 {
   "mcpServers": {
-    "voidhub": {
+    "guixuai": {
       "command": "node",
       "args": ["/Users/shifeihua/WebtoAPI/scripts/mcp/server.mjs"],
       "env": {
-        "VOIDHUB_BASE_URL": "http://127.0.0.1:3000",
-        "VOIDHUB_API_TOKEN": "sk-your-token"
+        "GUIXUAI_BASE_URL": "http://127.0.0.1:3000",
+        "GUIXUAI_API_TOKEN": "sk-your-token"
       }
     }
   }
@@ -343,7 +343,7 @@ MCP `tools/call` 参数示例（文本任务）：
 
 ```json
 {
-  "name": "voidhub_chat_completion",
+  "name": "guixuai_chat_completion",
   "arguments": {
     "model": "seed-thinking",
     "prompt": "用三点介绍这个网关",

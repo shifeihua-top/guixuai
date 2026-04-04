@@ -1,10 +1,10 @@
-# VoidHub (GuiXuAI / 万智归墟)
+# GuiXuAI (万智归墟)
 
 简体中文 | [English](README_EN.md)
 
 ## 项目定位
 
-VoidHub 是一个面向浏览器自动化场景的统一 AI API 网关。  
+GuiXuAI 是一个面向浏览器自动化场景的统一 AI API 网关。  
 它把多来源的 Web AI 能力封装为统一接口，降低接入复杂度，让业务侧可以用一致协议快速上线。
 
 ## 核心能力
@@ -63,7 +63,7 @@ docker run -d --name guixuai \
   -p 3000:3000 \
   -v "$(pwd)/data:/app/data" \
   --shm-size=2gb \
-  ghcr.io/shifeihua-top/voidhub:latest
+  ghcr.io/shifeihua-top/guixuai:latest
 ```
 
 或使用：
@@ -90,8 +90,8 @@ Authorization: Bearer <server.auth>
 项目内置 MCP Server，可用于 OpenClaw / 通用 MCP 客户端：
 
 ```bash
-VOIDHUB_BASE_URL=http://127.0.0.1:3000 \
-VOIDHUB_API_TOKEN=sk-your-token \
+GUIXUAI_BASE_URL=http://127.0.0.1:3000 \
+GUIXUAI_API_TOKEN=sk-your-token \
 npm run mcp:start
 ```
 

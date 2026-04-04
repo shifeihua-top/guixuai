@@ -1,10 +1,10 @@
-# VoidHub (GuiXuAI / 万智归墟)
+# GuiXuAI (万智归墟)
 
 [简体中文](README.md) | English
 
 ## Overview
 
-VoidHub is a unified AI API gateway built for browser-automation-based AI access.  
+GuiXuAI is a unified AI API gateway built for browser-automation-based AI access.  
 It standardizes heterogeneous web AI capabilities behind one consistent API so application teams can integrate faster with less coupling.
 
 ## Core Capabilities
@@ -64,7 +64,7 @@ docker run -d --name guixuai \
   -p 3000:3000 \
   -v "$(pwd)/data:/app/data" \
   --shm-size=2gb \
-  ghcr.io/shifeihua-top/voidhub:latest
+  ghcr.io/shifeihua-top/guixuai:latest
 ```
 
 Or:
@@ -91,8 +91,8 @@ Authorization: Bearer <server.auth>
 The project includes a built-in MCP Server for OpenClaw / generic MCP clients:
 
 ```bash
-VOIDHUB_BASE_URL=http://127.0.0.1:3000 \
-VOIDHUB_API_TOKEN=sk-your-token \
+GUIXUAI_BASE_URL=http://127.0.0.1:3000 \
+GUIXUAI_API_TOKEN=sk-your-token \
 npm run mcp:start
 ```
 
