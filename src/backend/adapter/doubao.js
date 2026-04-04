@@ -19,6 +19,23 @@ import { logger } from '../../utils/logger.js';
 // --- 配置常量 ---
 const TARGET_URL = 'https://www.doubao.com/chat/';
 const TARGET_CREATE_IMAGE_URL = 'https://www.doubao.com/chat/create-image';
+const DEFAULT_IMAGE_WAIT_TIMEOUT_MS = 300000;
+const FALLBACK_PAGE_WAIT_TIMEOUT_MS = 25000;
+
+function resolveImageWaitTimeoutMs(config) {
+    const poolWaitTimeout = Number(config?.backend?.pool?.waitTimeout);
+    const adapterWaitTimeout = Number(config?.backend?.adapter?.doubao?.imageTimeoutMs);
+
+    if (Number.isFinite(adapterWaitTimeout) && adapterWaitTimeout > 0) {
+        return Math.round(adapterWaitTimeout);
+    }
+
+    const baseWaitTimeout = (Number.isFinite(poolWaitTimeout) && poolWaitTimeout > 0)
+        ? Math.round(poolWaitTimeout)
+        : 120000;
+
+    return Math.max(baseWaitTimeout, DEFAULT_IMAGE_WAIT_TIMEOUT_MS);
+}
 
 async function isVisible(locator, timeout = 1500) {
     try {
@@ -298,6 +315,7 @@ async function generateCutout(context, imgPaths, meta = {}) {
  */
 async function generate(context, prompt, imgPaths, modelId, meta = {}) {
     const { page, config } = context;
+    const imageWaitTimeoutMs = resolveImageWaitTimeoutMs(config);
 
     if (modelId === 'ai-cutout') {
         return await generateCutout(context, imgPaths, meta);
@@ -382,14 +400,14 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             const timeout = setTimeout(() => {
                 if (!isResolved) {
                     isResolved = true;
-                    reject(new Error('API_TIMEOUT: 响应超时 (180秒)'));
+                    reject(new Error(`API_TIMEOUT: 响应超时 (${Math.round(imageWaitTimeoutMs / 1000)}秒)`));
                 }
-            }, 180000);
+            }, imageWaitTimeoutMs);
 
             const handleResponse = async (response) => {
                 try {
                     const url = response.url();
-                    if (!url.includes('chat/completion')) return;
+                    if (!url.includes('completion')) return;
 
                     const contentType = response.headers()['content-type'] || '';
                     if (!contentType.includes('text/event-stream')) return;
@@ -422,7 +440,26 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 
         // 7. 等待响应
         logger.info('适配器', '等待图片生成...', meta);
-        await resultPromise;
+        try {
+            await resultPromise;
+        } catch (e) {
+            if (!e?.message?.startsWith('API_TIMEOUT:')) throw e;
+
+            logger.warn('适配器', 'SSE 等待超时，尝试页面结果兜底提取...', meta);
+            const waitResult = await waitForDownloadOrNoBackground(page, FALLBACK_PAGE_WAIT_TIMEOUT_MS);
+            if (waitResult.downloadBtn) {
+                const extracted = await extractMainImage(page);
+                if (extracted?.dataUrl) {
+                    logger.info('适配器', '通过页面兜底提取到图片结果', meta);
+                    return { image: extracted.dataUrl };
+                }
+                if (extracted?.url) {
+                    imageUrl = extracted.url;
+                    logger.info('适配器', '通过页面兜底提取到图片链接', meta);
+                }
+            }
+            if (!imageUrl) throw e;
+        }
 
         if (!imageUrl) {
             return { error: '未能从响应中提取图片链接' };
