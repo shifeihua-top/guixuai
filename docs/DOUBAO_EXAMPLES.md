@@ -49,6 +49,7 @@ curl http://127.0.0.1:3000/v1/chat/completions \
 
 可用图片模型示例：
 
+- `seedream5.0Lite`
 - `seedream-4.5`
 - `seedream-4.0`
 - `seedream-3.0`

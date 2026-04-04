@@ -73,15 +73,22 @@ export function sendHeartbeat(res, mode, modelName) {
  * @param {string} [options.message] - 自定义错误消息（如提供则覆盖 code 对应的消息）
  * @param {number} [options.status] - 自定义 HTTP 状态码
  * @param {boolean} [options.isStreaming=false] - 是否为流式响应
+ * @param {object} [options.details] - 额外错误详情（如进度、阶段、状态）
  */
 export function sendApiError(res, options) {
-    const { code, message, status, isStreaming = false } = options;
+    const {
+        code,
+        message,
+        status,
+        isStreaming = false,
+        details: errorDetailsExtra
+    } = options;
 
     // 获取错误详情
-    const details = code ? getErrorDetails(code) : null;
-    const errorMessage = message || (details ? details.message : '未知错误');
-    const errorType = details?.type || 'server_error';
-    const httpStatus = status || (details ? details.status : 500);
+    const errorDetails = code ? getErrorDetails(code) : null;
+    const errorMessage = message || (errorDetails ? errorDetails.message : '未知错误');
+    const errorType = errorDetails?.type || 'server_error';
+    const httpStatus = status || (errorDetails ? errorDetails.status : 500);
 
     // 构造 OpenAI 标准错误响应体
     const payload = {
@@ -91,6 +98,9 @@ export function sendApiError(res, options) {
             code: code || 'INTERNAL_ERROR'
         }
     };
+    if (errorDetailsExtra && typeof errorDetailsExtra === 'object') {
+        payload.error.details = errorDetailsExtra;
+    }
 
     if (isStreaming) {
         // 流式响应：发送错误事件然后结束

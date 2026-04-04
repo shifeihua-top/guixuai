@@ -74,6 +74,36 @@ export function createQueueManager(queueConfig, callbacks) {
     let poolContext = null;
 
     /**
+     * 构造任务错误详情（用于接口返回异常进度信息）
+     * @param {TaskContext} task
+     * @param {number} startTime
+     * @param {object} [errResult={}]
+     * @returns {object}
+     */
+    function buildTaskErrorDetails(task, startTime, errResult = {}) {
+        const rawProgress = Number(errResult?.progress);
+        const progress = Number.isFinite(rawProgress)
+            ? Math.max(0, Math.min(100, Math.round(rawProgress)))
+            : 0;
+
+        const details = {
+            status: errResult?.status || 'failed',
+            stage: errResult?.stage || 'task_processing',
+            progress,
+            situation: errResult?.situation || '任务执行失败',
+            requestId: task.id,
+            elapsedMs: Date.now() - startTime,
+            retryable: !!errResult?.retryable
+        };
+
+        if (errResult?.details && typeof errResult.details === 'object') {
+            Object.assign(details, errResult.details);
+        }
+
+        return details;
+    }
+
+    /**
      * 清理任务临时文件
      * @param {TaskContext} task - 任务上下文
      */
@@ -152,10 +182,15 @@ export function createQueueManager(queueConfig, callbacks) {
                 } catch (e) {
                     logger.debug('服务器', `更新历史记录失败: ${e.message}`);
                 }
+                const details = buildTaskErrorDetails(task, startTime, result);
+                const errorStatus = result.status === 'auth_required'
+                    ? 403
+                    : (result.retryable ? 503 : 502);
                 sendApiError(res, {
                     code: ERROR_CODES.GENERATION_FAILED,
                     message: result.error,
-                    status: result.retryable ? 503 : 502,
+                    status: errorStatus,
+                    details,
                     isStreaming
                 });
                 return;
@@ -238,9 +273,20 @@ export function createQueueManager(queueConfig, callbacks) {
                 logger.debug('服务器', `更新历史记录失败: ${e.message}`);
             }
             logger.error('服务器', '任务处理失败', { id, error: err.message });
+            const details = buildTaskErrorDetails(task, startTime, {
+                status: 'failed',
+                stage: 'queue_processing',
+                progress: 0,
+                situation: '队列处理异常',
+                retryable: false,
+                details: {
+                    errorName: err?.name || 'Error'
+                }
+            });
             sendApiError(res, {
                 code: ERROR_CODES.INTERNAL_ERROR,
                 message: err.message,
+                details,
                 isStreaming
             });
         }

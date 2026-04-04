@@ -15,12 +15,29 @@ import {
     useContextDownload
 } from '../utils/index.js';
 import { logger } from '../../utils/logger.js';
+import { ADAPTER_ERRORS } from '../../server/errors.js';
 
 // --- 配置常量 ---
 const TARGET_URL = 'https://www.doubao.com/chat/';
 const TARGET_CREATE_IMAGE_URL = 'https://www.doubao.com/chat/create-image';
 const DEFAULT_IMAGE_WAIT_TIMEOUT_MS = 300000;
 const FALLBACK_PAGE_WAIT_TIMEOUT_MS = 25000;
+const LOGIN_MODAL_TEXT_RE = /登录以解锁更多功能|请输入手机号|抖音一键登录|打开\s*豆包\s*App|用户协议|隐私政策/i;
+
+function escapeRegExp(text) {
+    return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function resolveModelConfig(modelId) {
+    if (!modelId) {
+        return { error: '缺少模型 ID' };
+    }
+    const model = manifest.models.find(m => m.id === modelId);
+    if (!model) {
+        return { error: `不支持的模型: ${modelId}` };
+    }
+    return { model };
+}
 
 function resolveImageWaitTimeoutMs(config) {
     const poolWaitTimeout = Number(config?.backend?.pool?.waitTimeout);
@@ -35,6 +52,59 @@ function resolveImageWaitTimeoutMs(config) {
         : 120000;
 
     return Math.max(baseWaitTimeout, DEFAULT_IMAGE_WAIT_TIMEOUT_MS);
+}
+
+function clampProgress(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function createProgressTracker(meta = {}) {
+    const state = {
+        status: 'running',
+        stage: 'init',
+        progress: 0,
+        situation: '任务初始化'
+    };
+
+    return {
+        mark(stage, progress, situation) {
+            state.stage = stage;
+            state.progress = clampProgress(progress);
+            state.situation = situation || state.situation;
+            logger.debug('适配器', `[进度] ${state.progress}% ${state.situation}`, meta);
+        },
+        snapshot(extra = {}) {
+            return {
+                status: state.status,
+                stage: state.stage,
+                progress: state.progress,
+                situation: state.situation,
+                ...extra
+            };
+        }
+    };
+}
+
+function withProgress(result, tracker, extra = {}) {
+    return {
+        ...result,
+        ...tracker.snapshot(extra)
+    };
+}
+
+function buildProgressError(error, tracker, extra = {}) {
+    return withProgress({ error }, tracker, { status: 'failed', ...extra });
+}
+
+function buildAuthRequiredError(tracker, source = 'unknown') {
+    return buildProgressError('检测到豆包登录弹窗，请先登录后重试', tracker, {
+        status: 'auth_required',
+        code: ADAPTER_ERRORS.AUTH_REQUIRED,
+        retryable: false,
+        details: { authSource: source }
+    });
 }
 
 async function isVisible(locator, timeout = 1500) {
@@ -79,6 +149,83 @@ async function clickWithFallback(page, locator, meta = {}, label = '元素') {
     }
 
     return false;
+}
+
+async function isLoginModalVisible(page, timeout = 1200) {
+    const modal = await findFirstVisible([
+        page.locator('div[role="dialog"]').filter({ hasText: LOGIN_MODAL_TEXT_RE }),
+        page.locator('div[class*="modal"],div[class*="dialog"],div[class*="popup"]').filter({ hasText: LOGIN_MODAL_TEXT_RE }),
+        page.getByText(LOGIN_MODAL_TEXT_RE)
+    ], timeout);
+    return !!modal;
+}
+
+async function tryOpenLoginModal(page, meta = {}) {
+    if (await isLoginModalVisible(page, 1000)) {
+        return { modalVisible: true, source: 'already_visible' };
+    }
+
+    const loginButton = await findFirstVisible([
+        page.getByRole('button', { name: /^登录$|登录|log in|login/i }),
+        page.getByRole('link', { name: /^登录$|登录|log in|login/i }),
+        page.locator('button:has-text("登录"), a:has-text("登录"), div[role="button"]:has-text("登录")')
+    ], 2500);
+
+    if (!loginButton) {
+        return { modalVisible: false, source: 'login_button_not_found' };
+    }
+
+    const clicked = await clickWithFallback(page, loginButton, meta, '登录按钮');
+    if (!clicked) {
+        return { modalVisible: false, source: 'login_button_click_failed' };
+    }
+
+    await sleep(500, 800);
+    const modalVisible = await isLoginModalVisible(page, 3000);
+    return {
+        modalVisible,
+        source: modalVisible ? 'clicked_login_button' : 'clicked_login_without_modal'
+    };
+}
+
+async function dismissLoginModal(page, meta = {}) {
+    if (!(await isLoginModalVisible(page, 1000))) return true;
+
+    try {
+        await page.keyboard.press('Escape');
+    } catch { }
+    await sleep(200, 350);
+    if (!(await isLoginModalVisible(page, 800))) return true;
+
+    try {
+        await page.mouse.click(20, 20);
+    } catch { }
+    await sleep(200, 350);
+    if (!(await isLoginModalVisible(page, 800))) return true;
+
+    const mask = await findFirstVisible([
+        page.locator('div[class*="mask"],div[class*="overlay"],div[aria-hidden="true"]'),
+        page.locator('div[role="dialog"]').first()
+    ], 1200);
+    if (mask) {
+        try {
+            await clickWithFallback(page, mask, meta, '登录遮罩层');
+        } catch { }
+    }
+
+    await sleep(200, 350);
+    return !(await isLoginModalVisible(page, 1000));
+}
+
+async function probeAuthState(page, meta = {}) {
+    if (await isLoginModalVisible(page, 1000)) {
+        return { required: true, source: 'modal_visible' };
+    }
+    const probe = await tryOpenLoginModal(page, meta);
+    if (probe.modalVisible) {
+        return { required: true, source: probe.source };
+    }
+    return { required: false, source: probe.source };
 }
 
 async function detectNoCutoutBackground(page) {
@@ -179,6 +326,104 @@ async function extractMainImage(page) {
 
         return { url: src };
     });
+}
+
+async function extractGeneratedImageCandidates(page) {
+    return await page.evaluate(async () => {
+        const isVisible = (el) => {
+            const rect = el.getBoundingClientRect();
+            if (rect.width < 100 || rect.height < 100) return false;
+            if (rect.bottom <= 0 || rect.right <= 0) return false;
+            if (rect.top >= window.innerHeight || rect.left >= window.innerWidth) return false;
+            return true;
+        };
+
+        const all = Array.from(document.querySelectorAll('img')).filter(isVisible);
+        if (!all.length) return [];
+
+        const enriched = all.map((img) => {
+            const rect = img.getBoundingClientRect();
+            const src = img.currentSrc || img.src || '';
+            return {
+                src,
+                area: (img.naturalWidth || rect.width || 0) * (img.naturalHeight || rect.height || 0),
+                width: img.naturalWidth || rect.width || 0,
+                height: img.naturalHeight || rect.height || 0
+            };
+        }).filter(x => !!x.src);
+
+        // 优先保留较大、疑似生成结果的图片
+        enriched.sort((a, b) => b.area - a.area);
+
+        const seen = new Set();
+        const picked = [];
+
+        for (const item of enriched) {
+            if (seen.has(item.src)) continue;
+            seen.add(item.src);
+            picked.push(item);
+            if (picked.length >= 8) break;
+        }
+
+        const converted = [];
+        for (const item of picked) {
+            let src = item.src;
+            if (src.startsWith('blob:')) {
+                try {
+                    const resp = await fetch(src);
+                    const blob = await resp.blob();
+                    src = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result);
+                        reader.onerror = () => reject(reader.error || new Error('读取 blob 失败'));
+                        reader.readAsDataURL(blob);
+                    });
+                } catch {
+                    continue;
+                }
+            }
+            converted.push(src);
+        }
+
+        return converted;
+    });
+}
+
+async function waitForGeneratedImageCandidates(page, timeoutMs, meta = {}) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+        const candidates = await extractGeneratedImageCandidates(page);
+        if (Array.isArray(candidates) && candidates.length > 0) {
+            logger.info('适配器', `页面兜底提取到 ${candidates.length} 个候选图片`, meta);
+            return candidates;
+        }
+        await sleep(600, 900);
+    }
+    return [];
+}
+
+async function downloadImageCandidates(candidates, page, config, meta = {}) {
+    const imgDlCfg = config?.backend?.pool?.failover || {};
+    const downloaded = [];
+
+    for (const candidate of candidates) {
+        // data:image 直接收下
+        if (typeof candidate === 'string' && candidate.startsWith('data:image/')) {
+            downloaded.push({ image: candidate, imageUrl: null });
+            continue;
+        }
+
+        const result = await useContextDownload(candidate, page, {
+            retries: imgDlCfg.imgDlRetry ? (imgDlCfg.imgDlRetryMaxRetries || 2) : 0
+        });
+        if (result?.error) {
+            logger.warn('适配器', `候选图片下载失败，继续尝试下一个: ${result.error}`, meta);
+            continue;
+        }
+        downloaded.push({ image: result.image, imageUrl: result.imageUrl || candidate });
+    }
+
+    return downloaded;
 }
 
 async function generateCutout(context, imgPaths, meta = {}) {
@@ -316,36 +561,61 @@ async function generateCutout(context, imgPaths, meta = {}) {
 async function generate(context, prompt, imgPaths, modelId, meta = {}) {
     const { page, config } = context;
     const imageWaitTimeoutMs = resolveImageWaitTimeoutMs(config);
+    const progress = createProgressTracker(meta);
+    progress.mark('prepare', 2, '准备任务');
 
     if (modelId === 'ai-cutout') {
         return await generateCutout(context, imgPaths, meta);
     }
 
     // 获取模型配置
-    const modelConfig = manifest.models.find(m => m.id === modelId) || manifest.models[0];
-    const { codeName } = modelConfig;
+    const modelConfigResult = resolveModelConfig(modelId);
+    if (modelConfigResult.error) {
+        return buildProgressError(modelConfigResult.error, progress, {
+            stage: 'validate_model',
+            progress: 4,
+            situation: '模型校验失败',
+            retryable: false
+        });
+    }
+    const { codeName } = modelConfigResult.model;
 
     try {
+        progress.mark('open_chat_page', 10, '进入豆包页面');
         logger.info('适配器', '开启新会话...', meta);
         await gotoWithCheck(page, TARGET_URL);
 
+        progress.mark('auth_probe', 16, '检测登录弹窗状态');
+        const authProbe = await probeAuthState(page, meta);
+        if (authProbe.required) {
+            const dismissed = await dismissLoginModal(page, meta);
+            if (!dismissed) {
+                return buildAuthRequiredError(progress, authProbe.source);
+            }
+            progress.mark('auth_probe', 20, '检测到登录弹窗，已尝试关闭后继续');
+        }
+
         // 1. 进入图片生成模式
+        progress.mark('enter_image_mode', 28, '进入图片生成模式');
         logger.debug('适配器', '进入图片生成模式...', meta);
         await enterImageMode(page, meta);
 
         // 2. 选择模型
+        progress.mark('select_model', 38, '选择模型');
         logger.debug('适配器', `选择模型: ${codeName}...`, meta);
         const modelBtn = page.locator('button[data-testid="image-creation-chat-input-picture-model-button"]');
         await modelBtn.waitFor({ state: 'visible', timeout: 10000 });
         await safeClick(page, modelBtn, { bias: 'button' });
         await sleep(300, 500);
 
-        const modelOption = page.getByRole('menuitem', { name: new RegExp(codeName.replace('.', '\\.'), 'i') });
-        await modelOption.waitFor({ state: 'visible', timeout: 5000 });
+        const modelPattern = new RegExp(escapeRegExp(codeName), 'i');
+        const modelOption = page.getByRole('menuitem', { name: modelPattern });
+        await modelOption.waitFor({ state: 'visible', timeout: 10000 });
         await safeClick(page, modelOption, { bias: 'button' });
 
         // 3. 上传参考图片 (如果有)
         if (imgPaths && imgPaths.length > 0) {
+            progress.mark('upload_images', 48, `上传参考图 (${imgPaths.length} 张)`);
             logger.info('适配器', `开始上传 ${imgPaths.length} 张图片...`, meta);
 
             // 预先拦截 ApplyImageUpload 响应，动态收集实际上传路径
@@ -386,14 +656,16 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         }
 
         // 4. 填写提示词
+        progress.mark('input_prompt', 60, '填写提示词');
         const inputLocator = page.locator('div[data-testid="chat_input_input"][role="textbox"], textarea[data-testid="chat_input_input"]');
         await waitForInput(page, inputLocator, { click: true });
         await humanType(page, inputLocator, prompt);
 
         // 5. 设置 SSE 监听
+        progress.mark('listen_sse', 68, '等待生成响应');
         logger.debug('适配器', '启动 SSE 监听...', meta);
 
-        let imageUrl = null;
+        let imageUrls = [];
         let isResolved = false;
 
         const resultPromise = new Promise((resolve, reject) => {
@@ -408,15 +680,11 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                 try {
                     const url = response.url();
                     if (!url.includes('completion')) return;
-
-                    const contentType = response.headers()['content-type'] || '';
-                    if (!contentType.includes('text/event-stream')) return;
-
                     const body = await response.text();
-                    const extractedUrl = parseSSEForImage(body);
+                    const extractedUrls = parseResponseForImageUrls(body);
 
-                    if (extractedUrl) {
-                        imageUrl = extractedUrl;
+                    if (extractedUrls.length > 0) {
+                        imageUrls = Array.from(new Set([...imageUrls, ...extractedUrls]));
                         if (!isResolved) {
                             isResolved = true;
                             clearTimeout(timeout);
@@ -439,6 +707,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         await safeClick(page, sendBtn, { bias: 'button' });
 
         // 7. 等待响应
+        progress.mark('wait_generation', 78, '等待图片生成');
         logger.info('适配器', '等待图片生成...', meta);
         try {
             await resultPromise;
@@ -446,88 +715,136 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             if (!e?.message?.startsWith('API_TIMEOUT:')) throw e;
 
             logger.warn('适配器', 'SSE 等待超时，尝试页面结果兜底提取...', meta);
-            const waitResult = await waitForDownloadOrNoBackground(page, FALLBACK_PAGE_WAIT_TIMEOUT_MS);
-            if (waitResult.downloadBtn) {
-                const extracted = await extractMainImage(page);
-                if (extracted?.dataUrl) {
-                    logger.info('适配器', '通过页面兜底提取到图片结果', meta);
-                    return { image: extracted.dataUrl };
-                }
-                if (extracted?.url) {
-                    imageUrl = extracted.url;
-                    logger.info('适配器', '通过页面兜底提取到图片链接', meta);
-                }
+            const fallbackCandidates = await waitForGeneratedImageCandidates(page, FALLBACK_PAGE_WAIT_TIMEOUT_MS, meta);
+            if (fallbackCandidates.length > 0) {
+                imageUrls = Array.from(new Set([...imageUrls, ...fallbackCandidates]));
             }
-            if (!imageUrl) throw e;
+            if (imageUrls.length === 0) throw e;
         }
 
-        if (!imageUrl) {
-            return { error: '未能从响应中提取图片链接' };
+        if (imageUrls.length === 0) {
+            return buildProgressError('未能从响应中提取图片链接', progress, {
+                stage: 'parse_response',
+                progress: 82,
+                situation: '未提取到可用图片链接',
+                retryable: false
+            });
         }
 
-        logger.info('适配器', '已获取图片链接，开始下载...', meta);
+        progress.mark('download_images', 90, `下载候选图片 (${imageUrls.length} 个)`);
+        logger.info('适配器', `已获取 ${imageUrls.length} 个候选链接，开始下载...`, meta);
 
-        // 8. 下载图片
-        const imgDlCfg = config?.backend?.pool?.failover || {};
-        const downloadResult = await useContextDownload(imageUrl, page, {
-            retries: imgDlCfg.imgDlRetry ? (imgDlCfg.imgDlRetryMaxRetries || 2) : 0
-        });
-        if (downloadResult.error) {
-            logger.error('适配器', downloadResult.error, meta);
-            return downloadResult;
+        // 8. 下载图片（支持多图）
+        const downloaded = await downloadImageCandidates(imageUrls, page, config, meta);
+        if (downloaded.length === 0) {
+            return buildProgressError(`候选图片下载均失败（共 ${imageUrls.length} 个）`, progress, {
+                stage: 'download_images',
+                progress: 93,
+                situation: '图片下载失败',
+                retryable: true
+            });
         }
 
-        logger.info('适配器', '图片生成完成', meta);
-        return { image: downloadResult.image };
+        progress.mark('completed', 100, `图片生成完成（${downloaded.length} 张）`);
+        logger.info('适配器', `图片生成完成，成功下载 ${downloaded.length} 张`, meta);
+        if (downloaded.length === 1) {
+            return withProgress({ image: downloaded[0].image, imageUrl: downloaded[0].imageUrl }, progress, {
+                status: 'success'
+            });
+        }
+
+        const markdown = downloaded
+            .map((it, idx) => `![image_${idx + 1}](${it.image})`)
+            .join('\n\n');
+
+        return withProgress({
+            text: markdown,
+            image: downloaded[0].image, // 兼容旧客户端（默认第一张）
+            imageUrl: downloaded[0].imageUrl,
+            images: downloaded.map(it => it.image),
+            imageUrls: downloaded.map(it => it.imageUrl).filter(Boolean)
+        }, progress, { status: 'success' });
 
     } catch (err) {
+        const authProbe = await probeAuthState(page, meta);
+        if (authProbe.required) {
+            return buildAuthRequiredError(progress, authProbe.source);
+        }
+
         const pageError = normalizePageError(err, meta);
-        if (pageError) return pageError;
+        if (pageError) {
+            return withProgress(pageError, progress, {
+                status: 'failed',
+                stage: progress.snapshot().stage || 'failed',
+                progress: progress.snapshot().progress,
+                situation: progress.snapshot().situation
+            });
+        }
 
         logger.error('适配器', '生成任务失败', { ...meta, error: err.message });
-        return { error: `生成任务失败: ${err.message}` };
+        return buildProgressError(`生成任务失败: ${err.message}`, progress, {
+            retryable: false
+        });
     } finally { }
 }
 
 /**
- * 解析 SSE 响应，提取图片链接
- * @param {string} body - SSE 响应体
- * @returns {string|null} 图片 URL
+ * 解析响应体，提取图片链接（兼容 SSE/JSON）
+ * @param {string} body - 响应体
+ * @returns {string[]} 图片 URL 列表
  */
-function parseSSEForImage(body) {
-    const lines = body.split('\n');
+function parseResponseForImageUrls(body) {
+    if (!body || typeof body !== 'string') return [];
 
+    const urls = new Set();
+
+    // 优先按 SSE 行解析
+    const lines = body.split('\n');
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
-
         if (line.startsWith('data:')) {
             const dataLine = line.substring(5).trim();
             if (!dataLine || dataLine === '{}') continue;
-
             try {
                 const data = JSON.parse(dataLine);
-                const url = extractRawImage(data);
-                if (url) return url;
-            } catch (e) {
-                // JSON 解析失败，跳过
+                for (const url of extractRawImages(data)) {
+                    urls.add(url);
+                }
+            } catch {
+                // ignore
             }
         }
     }
 
-    return null;
+    // 回退：直接按 JSON 解析
+    if (urls.size === 0) {
+        try {
+            const data = JSON.parse(body);
+            for (const url of extractRawImages(data)) {
+                urls.add(url);
+            }
+        } catch {
+            // ignore
+        }
+    }
+
+    return Array.from(urls);
 }
 
 /**
- * 从 SSE 消息数据中提取原图 Raw 链接
- * @param {Object} sseData - 解析后的 data JSON 对象
- * @returns {string|null} - 返回图片 URL 或 null
+ * 从响应数据中提取原图 Raw 链接（支持多图）
+ * @param {Object} payload - 解析后的 JSON 对象
+ * @returns {string[]} - 图片 URL 列表
  */
-function extractRawImage(sseData) {
-    if (!sseData || !sseData.patch_op || !Array.isArray(sseData.patch_op)) {
-        return null;
+function extractRawImages(payload) {
+    if (!payload || !Array.isArray(payload.patch_op)) {
+        return [];
     }
 
-    for (const op of sseData.patch_op) {
+    const urls = [];
+    const seen = new Set();
+
+    for (const op of payload.patch_op) {
         const contentBlocks = op.patch_value?.content_block;
 
         if (Array.isArray(contentBlocks)) {
@@ -538,10 +855,21 @@ function extractRawImage(sseData) {
 
                     if (Array.isArray(creations)) {
                         for (const creation of creations) {
-                            // 提取 image_ori_raw，只有图片生成完成时才会出现
-                            const rawUrl = creation.image?.image_ori_raw?.url;
-                            if (rawUrl) {
-                                return rawUrl;
+                            const candidates = [
+                                creation.image?.image_ori_raw?.url,
+                                creation.image?.image_raw?.url,
+                                creation.image?.image_ori?.url,
+                                creation.image?.url,
+                                creation.image_url,
+                                creation?.url
+                            ].filter(Boolean);
+
+                            for (const u of candidates) {
+                                if (typeof u !== 'string') continue;
+                                if (!/^https?:\/\//i.test(u)) continue;
+                                if (seen.has(u)) continue;
+                                seen.add(u);
+                                urls.push(u);
                             }
                         }
                     }
@@ -550,7 +878,7 @@ function extractRawImage(sseData) {
         }
     }
 
-    return null;
+    return urls;
 }
 
 /**
@@ -567,6 +895,8 @@ export const manifest = {
 
     models: [
         { id: 'ai-cutout', codeName: 'AI抠图', imagePolicy: 'required' },
+        { id: 'seedream5.0Lite', codeName: 'Seedream 5.0 Lite', imagePolicy: 'optional' },
+        { id: 'seedream-5.0-lite', codeName: 'Seedream 5.0 Lite', imagePolicy: 'optional' },
         { id: 'seedream-4.5', codeName: 'Seedream 4.5', imagePolicy: 'optional' },
         { id: 'seedream-4.0', codeName: 'Seedream 4.0', imagePolicy: 'optional' },
         { id: 'seedream-3.0', codeName: 'Seedream 3.0', imagePolicy: 'optional' }
