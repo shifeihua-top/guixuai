@@ -148,25 +148,34 @@ const base64ToBlob = (dataUri) => {
 // 解析内容中的 Markdown 图片和直接的视频 data URI
 const parseMarkdownImages = (content) => {
   if (!content) return { text: '', images: [], videos: [] };
+  const images = [];
+  const videos = [];
+  const seenImages = new Set();
+  const seenVideos = new Set();
+  const pushImage = (src, alt = '图片') => {
+    if (!src || seenImages.has(src)) return;
+    seenImages.add(src);
+    images.push({ alt, src, type: 'image' });
+  };
+  const pushVideo = (src, type = 'video/mp4') => {
+    if (!src || seenVideos.has(src)) return;
+    seenVideos.add(src);
+    videos.push({ src, type });
+  };
+  const trimTrailingPunctuation = (url) => String(url || '').trim().replace(/[),.;]+$/, '');
 
   // 直接图片 data URI
   if (content.trim().startsWith('data:image/')) {
-    return {
-      text: '',
-      images: [{ alt: '生成图片', src: content.trim(), type: 'image' }],
-      videos: []
-    };
+    pushImage(content.trim(), '生成图片');
+    return { text: '', images, videos };
   }
 
   // 检测是否是直接的 data:video/ 内容（非 markdown 格式）
   if (content.trim().startsWith('data:video/')) {
     try {
       const blobUrl = base64ToBlob(content.trim());
-      return {
-        text: '',
-        images: [],
-        videos: [{ src: blobUrl, type: 'video/mp4' }]
-      };
+      pushVideo(blobUrl, 'video/mp4');
+      return { text: '', images, videos };
     } catch (e) {
       console.error('视频转换失败', e);
       return { text: content, images: [], videos: [] };
@@ -174,10 +183,9 @@ const parseMarkdownImages = (content) => {
   }
 
   const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
-  const images = [];
   let match;
   let lastIndex = 0;
-  let textParts = [];
+  const textParts = [];
 
   while ((match = imageRegex.exec(content)) !== null) {
     // 添加图片之前的文本
@@ -185,12 +193,7 @@ const parseMarkdownImages = (content) => {
       textParts.push(content.substring(lastIndex, match.index));
     }
 
-    // 添加图片
-    images.push({
-      alt: match[1] || '图片',
-      src: match[2],
-      type: 'image'
-    });
+    pushImage(match[2], match[1] || '图片');
 
     lastIndex = imageRegex.lastIndex;
   }
@@ -200,10 +203,40 @@ const parseMarkdownImages = (content) => {
     textParts.push(content.substring(lastIndex));
   }
 
+  const remainingLines = [];
+  const sourceLineRegex = /^\s*(source|service)_(image|video)_(\d+)\s*:\s*(\S+)\s*$/i;
+  const labelOnlyRegex = /^\s*(source|service)_(image|video)_(\d+)\s*:\s*$/i;
+
+  for (const line of textParts.join('').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      remainingLines.push(line);
+      continue;
+    }
+
+    const sourceMatch = trimmed.match(sourceLineRegex);
+    if (sourceMatch) {
+      const mediaType = sourceMatch[2].toLowerCase();
+      const mediaIndex = sourceMatch[3];
+      const url = trimTrailingPunctuation(sourceMatch[4]);
+      if (mediaType === 'video') {
+        pushVideo(url, 'video/mp4');
+      } else {
+        pushImage(url, `${sourceMatch[1]}_${mediaType}_${mediaIndex}`);
+      }
+      continue;
+    }
+
+    // 仅标签行（例如 service_image_1:），避免污染文本展示
+    if (labelOnlyRegex.test(trimmed)) continue;
+
+    remainingLines.push(line);
+  }
+
   return {
-    text: textParts.join('').trim(),
+    text: remainingLines.join('\n').trim(),
     images,
-    videos: []
+    videos
   };
 };
 

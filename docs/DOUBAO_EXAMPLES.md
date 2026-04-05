@@ -1,4 +1,4 @@
-# dou包场景示例（文本与图片生成）
+# dou包场景示例（文本、图片与视频生成）
 
 更新时间：2026-04-03
 
@@ -29,6 +29,7 @@ backend:
 - `seed`
 - `seed-thinking`
 - `seed-pro`
+- `seed-super`（超能模式）
 
 调用示例：
 
@@ -120,3 +121,59 @@ curl http://127.0.0.1:3000/v1/chat/completions \
 - 先调用 `GET /v1/models` 动态确认当前可用模型
 - 图像任务建议使用非流式，便于一次性获取结果
 - 若出现登录态问题，先通过 `GET /v1/cookies` 排查实例会话
+
+## 7. 视频生成示例（豆包图像模式切换“视频”）
+
+可用视频模型示例：
+
+- `seedance-2.0-fast`
+- `doubao-video-seedance-2.0-fast`（别名）
+
+```bash
+curl http://127.0.0.1:3000/v1/chat/completions \
+  -H "Authorization: Bearer sk-change-me-to-your-secure-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "seedance-2.0-fast",
+    "stream": false,
+    "messages": [
+      { "role": "user", "content": "生成一个 5 秒科技感粒子旋转视频，深蓝背景，镜头缓慢推进" }
+    ]
+  }'
+```
+
+## 8. 超能模式示例（长任务）
+
+超能模式会执行更长时间任务，返回文本结果，并在有交付链接时附带“任务交付”列表：
+
+```bash
+curl http://127.0.0.1:3000/v1/chat/completions \
+  -H "Authorization: Bearer sk-change-me-to-your-secure-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "seed-super",
+    "stream": false,
+    "messages": [
+      { "role": "user", "content": "分析新能源车行业趋势并输出可执行周报模板，若有交付文件请附上" }
+    ]
+  }'
+```
+
+相关超时配置（可选）：
+
+```yaml
+backend:
+  adapter:
+    doubao:
+      imageTimeoutMs: 420000
+      superTaskTimeoutMs: 900000
+```
+
+说明：
+
+- 超能模式会在日志中持续输出进度阶段（避免长时间无反馈）
+- 当页面长时间稳定无变化时，会主动检查当前结果并尽量返回已完成内容
+- 为避免输入框遮挡底部操作区，适配器会在结果整理前自动上滚视图后再提取内容
+- 已支持两种超能模式界面：
+  - 对话单栏结果
+  - 左侧任务/文件 + 右侧文件正文（分栏模式，自动尝试抓取右侧下载交付线索）

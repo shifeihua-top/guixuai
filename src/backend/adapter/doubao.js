@@ -23,6 +23,10 @@ const TARGET_CREATE_IMAGE_URL = 'https://www.doubao.com/chat/create-image';
 const DEFAULT_IMAGE_WAIT_TIMEOUT_MS = 300000;
 const FALLBACK_PAGE_WAIT_TIMEOUT_MS = 25000;
 const LOGIN_LIMIT_TEXT_RE = /未登录时仅能发起\s*5\s*个新对话.*请登录以解锁该限制/i;
+const VIDEO_URL_RE = /\.(mp4|webm|mov|m4v)(\?|$)/i;
+const DEFAULT_IMAGE_RESET_AFTER_ROUNDS = 3;
+const pageConversationState = new WeakMap();
+const FAST_CLICK_OPTIONS = { waitStable: false, cursorSpeed: 140, timeout: 9000 };
 
 function escapeRegExp(text) {
     return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -52,6 +56,29 @@ function resolveImageWaitTimeoutMs(config) {
         : 120000;
 
     return Math.max(baseWaitTimeout, DEFAULT_IMAGE_WAIT_TIMEOUT_MS);
+}
+
+function resolveImageConversationPolicy(config) {
+    const conv = config?.backend?.adapter?.doubao?.conversation || {};
+    const rawMode = conv.mode ?? config?.backend?.adapter?.doubao?.newConversationMode ?? 'auto';
+    const mode = String(rawMode).trim().toLowerCase();
+    const normalizedMode = ['always', 'auto', 'never'].includes(mode) ? mode : 'auto';
+
+    const roundsRaw = Number(conv.imageResetAfterRounds ?? config?.backend?.adapter?.doubao?.imageResetAfterRounds);
+    const imageResetAfterRounds = (Number.isFinite(roundsRaw) && roundsRaw >= 1)
+        ? Math.min(20, Math.round(roundsRaw))
+        : DEFAULT_IMAGE_RESET_AFTER_ROUNDS;
+
+    return { mode: normalizedMode, imageResetAfterRounds };
+}
+
+function getPageState(page) {
+    let state = pageConversationState.get(page);
+    if (!state) {
+        state = { imageRounds: 0 };
+        pageConversationState.set(page, state);
+    }
+    return state;
 }
 
 function clampProgress(value) {
@@ -117,18 +144,64 @@ async function isVisible(locator, timeout = 1500) {
 }
 
 async function findFirstVisible(candidates, timeout = 3000) {
+    const totalTimeout = Math.max(0, Number(timeout) || 0);
+    const deadline = Date.now() + totalTimeout;
     for (const candidate of candidates) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
         const target = candidate.first ? candidate.first() : candidate;
-        if (await isVisible(target, timeout)) return target;
+        if (await isVisible(target, Math.max(200, remaining))) return target;
     }
     return null;
+}
+
+async function clickNewConversation(page, meta = {}) {
+    const newChatBtn = await findFirstVisible([
+        page.getByRole('button', { name: /^\s*新对话\s*$|^\s*new chat\s*$/i }),
+        page.getByRole('link', { name: /^\s*新对话\s*$|^\s*new chat\s*$/i }),
+        page.locator('button,a,[role="button"],[role="link"]').filter({ hasText: /^\s*新对话\s*$|^\s*new chat\s*$/i })
+    ], 2500);
+
+    if (!newChatBtn) {
+        logger.warn('适配器', '未找到左侧“新对话”按钮，继续当前会话', meta);
+        return false;
+    }
+
+    const switched = await clickWithFallback(page, newChatBtn, meta, '新对话按钮');
+    if (switched) {
+        await sleep(180, 320);
+        logger.info('适配器', '已切换到新对话', meta);
+    }
+    return switched;
+}
+
+async function maybeResetImageConversation(page, config, meta = {}) {
+    const policy = resolveImageConversationPolicy(config);
+    const state = getPageState(page);
+    const rounds = state.imageRounds || 0;
+    const needReset = policy.mode === 'always'
+        || (policy.mode === 'auto' && rounds >= policy.imageResetAfterRounds);
+
+    if (!needReset) return false;
+
+    logger.info(
+        '适配器',
+        policy.mode === 'always'
+            ? '按配置重置到新对话'
+            : `当前会话累计 ${rounds} 轮，重置到新对话`,
+        meta
+    );
+
+    const switched = await clickNewConversation(page, meta);
+    if (switched) state.imageRounds = 0;
+    return switched;
 }
 
 async function clickWithFallback(page, locator, meta = {}, label = '元素') {
     const target = locator.first ? locator.first() : locator;
 
     try {
-        await safeClick(page, target, { bias: 'button' });
+        await safeClick(page, target, { bias: 'button', ...FAST_CLICK_OPTIONS });
         return true;
     } catch (e1) {
         logger.warn('适配器', `${label} safeClick 失败，尝试原生点击: ${e1.message}`, meta);
@@ -149,6 +222,81 @@ async function clickWithFallback(page, locator, meta = {}, label = '元素') {
     }
 
     return false;
+}
+
+async function fastSetPrompt(inputLocator, prompt, meta = {}) {
+    try {
+        const target = inputLocator.first ? inputLocator.first() : inputLocator;
+        await target.evaluate((el, value) => {
+            const text = String(value ?? '');
+            const tag = (el.tagName || '').toUpperCase();
+            const isEditable = el.isContentEditable || el.getAttribute?.('contenteditable') === 'true';
+
+            if (tag === 'TEXTAREA' || tag === 'INPUT') {
+                const proto = Object.getPrototypeOf(el);
+                const desc = proto ? Object.getOwnPropertyDescriptor(proto, 'value') : null;
+                if (desc && typeof desc.set === 'function') desc.set.call(el, text);
+                else el.value = text;
+            } else if (isEditable) {
+                el.textContent = text;
+            } else {
+                el.textContent = text;
+            }
+
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+        }, prompt);
+        return true;
+    } catch (e) {
+        logger.debug('适配器', `快速填充提示词失败，回退拟人输入: ${e.message}`, meta);
+        return false;
+    }
+}
+
+async function clearPromptInput(inputLocator) {
+    const target = inputLocator.first ? inputLocator.first() : inputLocator;
+    await target.evaluate((el) => {
+        const tag = (el.tagName || '').toUpperCase();
+        const isEditable = el.isContentEditable || el.getAttribute?.('contenteditable') === 'true';
+
+        if (tag === 'TEXTAREA' || tag === 'INPUT') {
+            const proto = Object.getPrototypeOf(el);
+            const desc = proto ? Object.getOwnPropertyDescriptor(proto, 'value') : null;
+            if (desc && typeof desc.set === 'function') desc.set.call(el, '');
+            else el.value = '';
+        } else if (isEditable) {
+            el.textContent = '';
+        } else {
+            el.textContent = '';
+        }
+
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+}
+
+async function isSendButtonEnabled(page) {
+    try {
+        const sendBtn = page.locator('button[data-testid="chat_input_send_button"]').first();
+        await sendBtn.waitFor({ state: 'visible', timeout: 2000 });
+        return await sendBtn.evaluate((el) => !el.disabled && el.getAttribute('aria-disabled') !== 'true');
+    } catch {
+        return false;
+    }
+}
+
+async function triggerSendButtonByHumanTouch(page, inputLocator, meta = {}) {
+    try {
+        await safeClick(page, inputLocator, { bias: 'input', ...FAST_CLICK_OPTIONS });
+        await page.keyboard.type('x', { delay: 14 });
+        await sleep(20, 40);
+        await page.keyboard.press('Backspace', { delay: 10 });
+        await sleep(20, 40);
+        return true;
+    } catch (e) {
+        logger.debug('适配器', `拟人触发发送按钮失败: ${e.message}`, meta);
+        return false;
+    }
 }
 
 async function detectLoginLimit(page) {
@@ -203,8 +351,8 @@ async function enterImageMode(page, meta = {}) {
     for (const candidate of skillCandidates) {
         if (!(await isVisible(candidate, 3500))) continue;
         try {
-            await safeClick(page, candidate.first(), { bias: 'button' });
-            await sleep(200, 400);
+            await safeClick(page, candidate.first(), { bias: 'button', ...FAST_CLICK_OPTIONS });
+            await sleep(80, 140);
             if (await isVisible(modelBtn, 3500)) return;
         } catch {
             // 尝试下一个候选入口
@@ -212,6 +360,29 @@ async function enterImageMode(page, meta = {}) {
     }
 
     logger.warn('适配器', '未找到稳定的图片模式入口，尝试继续执行', meta);
+}
+
+async function switchCreationMode(page, mode = 'image', meta = {}) {
+    const target = mode === 'video' ? '视频' : '图像';
+
+    const modeBtn = await findFirstVisible([
+        page.getByRole('button', { name: new RegExp(`^${target}$`, 'i') }),
+        page.locator('button').filter({ hasText: new RegExp(`^${target}$`, 'i') }),
+        page.locator('[role="tab"]').filter({ hasText: new RegExp(`^${target}$`, 'i') }),
+        page.getByText(new RegExp(`^${target}$`, 'i'))
+    ], 2500);
+
+    if (!modeBtn) {
+        logger.warn('适配器', `未找到“${target}”模式入口，继续使用当前模式`, meta);
+        return false;
+    }
+
+    const switched = await clickWithFallback(page, modeBtn, meta, `${target}模式入口`);
+    if (switched) {
+        logger.info('适配器', `已切换到${target}模式`, meta);
+        await sleep(80, 140);
+    }
+    return switched;
 }
 
 async function extractMainImage(page) {
@@ -321,6 +492,77 @@ async function extractGeneratedImageCandidates(page) {
     });
 }
 
+async function extractGeneratedVideoCandidates(page) {
+    return await page.evaluate(async () => {
+        const isVisible = (el) => {
+            const rect = el.getBoundingClientRect();
+            if (rect.width < 120 || rect.height < 120) return false;
+            if (rect.bottom <= 0 || rect.right <= 0) return false;
+            if (rect.top >= window.innerHeight || rect.left >= window.innerWidth) return false;
+            return true;
+        };
+
+        const videos = Array.from(document.querySelectorAll('video')).filter(isVisible);
+        const links = Array.from(document.querySelectorAll('a[href], source[src]'));
+
+        const candidates = [];
+        const pushIf = (url) => {
+            if (typeof url !== 'string') return;
+            const u = url.trim();
+            if (!u) return;
+            if (u.startsWith('blob:') || u.startsWith('data:video/') || /^https?:\/\//i.test(u)) {
+                candidates.push(u);
+            }
+        };
+
+        for (const video of videos) {
+            pushIf(video.currentSrc || video.src);
+            for (const source of Array.from(video.querySelectorAll('source'))) {
+                pushIf(source.src);
+            }
+        }
+
+        for (const node of links) {
+            if (node.tagName === 'A') {
+                const href = node.getAttribute('href') || '';
+                if (/\.(mp4|webm|mov|m4v)(\?|$)/i.test(href)) pushIf(href);
+            } else {
+                const src = node.getAttribute('src') || '';
+                if (/\.(mp4|webm|mov|m4v)(\?|$)/i.test(src)) pushIf(src);
+            }
+        }
+
+        const seen = new Set();
+        const converted = [];
+
+        for (const item of candidates) {
+            if (seen.has(item)) continue;
+            seen.add(item);
+            if (item.startsWith('blob:')) {
+                try {
+                    const resp = await fetch(item);
+                    const blob = await resp.blob();
+                    const dataUrl = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result);
+                        reader.onerror = () => reject(reader.error || new Error('读取 blob 失败'));
+                        reader.readAsDataURL(blob);
+                    });
+                    if (typeof dataUrl === 'string' && dataUrl.startsWith('data:video/')) {
+                        converted.push(dataUrl);
+                    }
+                    continue;
+                } catch {
+                    continue;
+                }
+            }
+            converted.push(item);
+        }
+
+        return converted.slice(0, 6);
+    });
+}
+
 async function waitForGeneratedImageCandidates(page, timeoutMs, meta = {}) {
     const startedAt = Date.now();
     while (Date.now() - startedAt < timeoutMs) {
@@ -334,14 +576,46 @@ async function waitForGeneratedImageCandidates(page, timeoutMs, meta = {}) {
     return [];
 }
 
-async function downloadImageCandidates(candidates, page, config, meta = {}) {
+async function waitForGeneratedVideoCandidates(page, timeoutMs, meta = {}) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+        const candidates = await extractGeneratedVideoCandidates(page);
+        if (Array.isArray(candidates) && candidates.length > 0) {
+            logger.info('适配器', `页面兜底提取到 ${candidates.length} 个候选视频`, meta);
+            return candidates;
+        }
+        await sleep(800, 1200);
+    }
+    return [];
+}
+
+function isDataMedia(candidate, kind = 'image') {
+    if (typeof candidate !== 'string') return false;
+    return kind === 'video'
+        ? candidate.startsWith('data:video/')
+        : candidate.startsWith('data:image/');
+}
+
+function isLikelyVideoUrl(url) {
+    if (typeof url !== 'string') return false;
+    if (!/^https?:\/\//i.test(url)) return false;
+    if (VIDEO_URL_RE.test(url)) return true;
+    return /video|seedance|doubao.*(asset|file)|download/i.test(url);
+}
+
+async function downloadMediaCandidates(candidates, page, config, meta = {}, kind = 'image') {
     const imgDlCfg = config?.backend?.pool?.failover || {};
     const downloaded = [];
 
     for (const candidate of candidates) {
-        // data:image 直接收下
-        if (typeof candidate === 'string' && candidate.startsWith('data:image/')) {
+        // data: 媒体直接收下
+        if (isDataMedia(candidate, kind)) {
             downloaded.push({ image: candidate, imageUrl: null });
+            continue;
+        }
+
+        if (kind === 'video' && !isLikelyVideoUrl(candidate)) {
+            logger.debug('适配器', `跳过非视频候选链接: ${String(candidate).slice(0, 120)}`, meta);
             continue;
         }
 
@@ -349,7 +623,11 @@ async function downloadImageCandidates(candidates, page, config, meta = {}) {
             retries: imgDlCfg.imgDlRetry ? (imgDlCfg.imgDlRetryMaxRetries || 2) : 0
         });
         if (result?.error) {
-            logger.warn('适配器', `候选图片下载失败，继续尝试下一个: ${result.error}`, meta);
+            logger.warn('适配器', `候选${kind === 'video' ? '视频' : '图片'}下载失败，继续尝试下一个: ${result.error}`, meta);
+            continue;
+        }
+        if (kind === 'video' && typeof result?.image === 'string' && !result.image.startsWith('data:video/')) {
+            logger.warn('适配器', '下载结果不是视频内容，已跳过', meta);
             continue;
         }
         downloaded.push({ image: result.image, imageUrl: result.imageUrl || candidate });
@@ -510,7 +788,10 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             retryable: false
         });
     }
-    const { codeName } = modelConfigResult.model;
+    const selectedModel = modelConfigResult.model;
+    const { codeName } = selectedModel;
+    const generationMode = selectedModel.mode === 'video' ? 'video' : 'image';
+    const mediaLabel = generationMode === 'video' ? '视频' : '图片';
 
     try {
         progress.mark('open_chat_page', 10, '进入豆包页面');
@@ -522,23 +803,30 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             return buildAuthRequiredError(progress, 'quota_limit_before_generate');
         }
 
+        progress.mark('reset_conversation', 22, '检查是否需要重置会话');
+        await maybeResetImageConversation(page, config, meta);
+
         // 1. 进入图片生成模式
-        progress.mark('enter_image_mode', 28, '进入图片生成模式');
-        logger.debug('适配器', '进入图片生成模式...', meta);
+        progress.mark('enter_image_mode', 28, '进入图像创作模式');
+        logger.debug('适配器', '进入图像创作模式...', meta);
         await enterImageMode(page, meta);
+        if (generationMode === 'video') {
+            progress.mark('switch_video_mode', 34, '切换视频模式');
+            await switchCreationMode(page, 'video', meta);
+        }
 
         // 2. 选择模型
-        progress.mark('select_model', 38, '选择模型');
+        progress.mark('select_model', 40, '选择模型');
         logger.debug('适配器', `选择模型: ${codeName}...`, meta);
         const modelBtn = page.locator('button[data-testid="image-creation-chat-input-picture-model-button"]');
         await modelBtn.waitFor({ state: 'visible', timeout: 10000 });
-        await safeClick(page, modelBtn, { bias: 'button' });
-        await sleep(300, 500);
+        await safeClick(page, modelBtn, { bias: 'button', ...FAST_CLICK_OPTIONS });
+        await sleep(80, 140);
 
         const modelPattern = new RegExp(escapeRegExp(codeName), 'i');
         const modelOption = page.getByRole('menuitem', { name: modelPattern });
         await modelOption.waitFor({ state: 'visible', timeout: 10000 });
-        await safeClick(page, modelOption, { bias: 'button' });
+        await safeClick(page, modelOption, { bias: 'button', ...FAST_CLICK_OPTIONS });
 
         // 3. 上传参考图片 (如果有)
         if (imgPaths && imgPaths.length > 0) {
@@ -585,14 +873,33 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         // 4. 填写提示词
         progress.mark('input_prompt', 60, '填写提示词');
         const inputLocator = page.locator('div[data-testid="chat_input_input"][role="textbox"], textarea[data-testid="chat_input_input"]');
-        await waitForInput(page, inputLocator, { click: true });
-        await humanType(page, inputLocator, prompt);
+        await waitForInput(page, inputLocator, { click: false });
+        let sendReady = false;
+        const fastFilled = await fastSetPrompt(inputLocator, prompt, meta);
+        if (fastFilled) {
+            await triggerSendButtonByHumanTouch(page, inputLocator, meta);
+            sendReady = await isSendButtonEnabled(page);
+        }
+        if (!sendReady) {
+            await clearPromptInput(inputLocator);
+            await safeClick(page, inputLocator, { bias: 'input', ...FAST_CLICK_OPTIONS });
+            await humanType(page, inputLocator, prompt);
+            sendReady = await isSendButtonEnabled(page);
+        }
+        if (!sendReady) {
+            return buildProgressError('提示词已填写，但发送按钮未激活', progress, {
+                stage: 'input_prompt',
+                progress: 64,
+                situation: '发送按钮未激活',
+                retryable: true
+            });
+        }
 
         // 5. 设置 SSE 监听
-        progress.mark('listen_sse', 68, '等待生成响应');
+        progress.mark('listen_sse', 68, `等待${mediaLabel}生成响应`);
         logger.debug('适配器', '启动 SSE 监听...', meta);
 
-        let imageUrls = [];
+        let mediaUrls = [];
         let isResolved = false;
 
         const resultPromise = new Promise((resolve, reject) => {
@@ -608,10 +915,10 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                     const url = response.url();
                     if (!url.includes('completion')) return;
                     const body = await response.text();
-                    const extractedUrls = parseResponseForImageUrls(body);
+                    const extractedUrls = parseResponseForMediaUrls(body, generationMode);
 
                     if (extractedUrls.length > 0) {
-                        imageUrls = Array.from(new Set([...imageUrls, ...extractedUrls]));
+                        mediaUrls = Array.from(new Set([...mediaUrls, ...extractedUrls]));
                         if (!isResolved) {
                             isResolved = true;
                             clearTimeout(timeout);
@@ -631,11 +938,11 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         const sendBtn = page.locator('button[data-testid="chat_input_send_button"]');
         await sendBtn.waitFor({ state: 'visible', timeout: 10000 });
         logger.info('适配器', '点击发送...', meta);
-        await safeClick(page, sendBtn, { bias: 'button' });
+        await safeClick(page, sendBtn, { bias: 'button', ...FAST_CLICK_OPTIONS });
 
         // 7. 等待响应
-        progress.mark('wait_generation', 78, '等待图片生成');
-        logger.info('适配器', '等待图片生成...', meta);
+        progress.mark('wait_generation', 78, `等待${mediaLabel}生成`);
+        logger.info('适配器', `等待${mediaLabel}生成...`, meta);
         try {
             await resultPromise;
         } catch (e) {
@@ -645,56 +952,103 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                 return buildAuthRequiredError(progress, 'quota_limit_after_send');
             }
 
-            logger.warn('适配器', 'SSE 等待超时，尝试页面结果兜底提取...', meta);
-            const fallbackCandidates = await waitForGeneratedImageCandidates(page, FALLBACK_PAGE_WAIT_TIMEOUT_MS, meta);
+            logger.warn('适配器', `SSE 等待超时，尝试页面${mediaLabel}结果兜底提取...`, meta);
+            const fallbackCandidates = generationMode === 'video'
+                ? await waitForGeneratedVideoCandidates(page, FALLBACK_PAGE_WAIT_TIMEOUT_MS, meta)
+                : await waitForGeneratedImageCandidates(page, FALLBACK_PAGE_WAIT_TIMEOUT_MS, meta);
             if (fallbackCandidates.length > 0) {
-                imageUrls = Array.from(new Set([...imageUrls, ...fallbackCandidates]));
+                mediaUrls = Array.from(new Set([...mediaUrls, ...fallbackCandidates]));
             }
-            if (imageUrls.length === 0) throw e;
+            if (mediaUrls.length === 0) throw e;
         }
 
-        if (imageUrls.length === 0) {
-            return buildProgressError('未能从响应中提取图片链接', progress, {
+        if (mediaUrls.length === 0) {
+            return buildProgressError(`未能从响应中提取${mediaLabel}链接`, progress, {
                 stage: 'parse_response',
                 progress: 82,
-                situation: '未提取到可用图片链接',
+                situation: `未提取到可用${mediaLabel}链接`,
                 retryable: false
             });
         }
 
-        progress.mark('download_images', 90, `下载候选图片 (${imageUrls.length} 个)`);
-        logger.info('适配器', `已获取 ${imageUrls.length} 个候选链接，开始下载...`, meta);
+        const buildRawLinkMarkdown = (urls, startIndex = 1) => {
+            if (!Array.isArray(urls) || urls.length === 0) return '';
+            if (generationMode === 'video') {
+                return urls.map((u, idx) => `source_video_${startIndex + idx}: ${u}`).join('\n');
+            }
+            return urls.map((u, idx) => `source_image_${startIndex + idx}: ${u}`).join('\n');
+        };
+        const buildServiceMarkdown = (items, startIndex = 1) => {
+            if (!Array.isArray(items) || items.length === 0) return '';
+            if (generationMode === 'video') {
+                return items.map((it, idx) => `service_video_${startIndex + idx}: ${it.imageUrl || '[data:video]'}\n${it.image}`).join('\n\n');
+            }
+            return items.map((it, idx) => `service_image_${startIndex + idx}:\n![service_image_${startIndex + idx}](${it.image})`).join('\n\n');
+        };
 
-        // 8. 下载图片（支持多图）
-        const downloaded = await downloadImageCandidates(imageUrls, page, config, meta);
+        // 为保证“最多返回”，采用更高上限（仍保留安全边界，防止误抓历史结果过多）
+        const candidateLimit = generationMode === 'video' ? 12 : 20;
+        if (mediaUrls.length > candidateLimit) {
+            logger.info('适配器', `候选${mediaLabel}过多，仅保留最新 ${candidateLimit} 个`, {
+                ...meta,
+                total: mediaUrls.length,
+                limited: candidateLimit
+            });
+            mediaUrls = mediaUrls.slice(0, candidateLimit);
+        }
+
+        const rawLinksMarkdown = buildRawLinkMarkdown(mediaUrls, 1);
+
+        // 先把全部原始链接流式推送给客户端，再进行下载处理，确保“最快可见”
+        if (typeof meta?.onPartialContent === 'function' && rawLinksMarkdown) {
+            try {
+                await meta.onPartialContent(rawLinksMarkdown);
+                progress.mark('emit_raw_links', 86, `已返回全部原始${mediaLabel}链接`);
+            } catch (e) {
+                logger.debug('适配器', `流式推送原始${mediaLabel}链接失败（继续后续流程）: ${e.message}`, meta);
+            }
+        }
+
+        progress.mark('download_media', 90, `下载候选${mediaLabel} (${mediaUrls.length} 个)`);
+        logger.info('适配器', `已获取 ${mediaUrls.length} 个候选${mediaLabel}链接，开始下载...`, meta);
+
+        // 8. 下载媒体结果
+        const downloaded = await downloadMediaCandidates(mediaUrls, page, config, meta, generationMode);
         if (downloaded.length === 0) {
-            return buildProgressError(`候选图片下载均失败（共 ${imageUrls.length} 个）`, progress, {
-                stage: 'download_images',
-                progress: 93,
-                situation: '图片下载失败',
-                retryable: true
-            });
+            progress.mark('completed', 100, `已返回原始${mediaLabel}链接，服务下载失败`);
+            const state = getPageState(page);
+            state.imageRounds = (state.imageRounds || 0) + 1;
+            const markdown = [
+                rawLinksMarkdown,
+                `service_${generationMode}_download_status: failed`
+            ].filter(Boolean).join('\n\n');
+            return withProgress({
+                text: markdown,
+                serviceText: `service_${generationMode}_download_status: failed`,
+                imageUrl: mediaUrls[0] || null,
+                imageUrls: mediaUrls,
+                serviceImageUrls: []
+            }, progress, { status: 'success', delivery: 'raw_links_only' });
         }
 
-        progress.mark('completed', 100, `图片生成完成（${downloaded.length} 张）`);
-        logger.info('适配器', `图片生成完成，成功下载 ${downloaded.length} 张`, meta);
-        if (downloaded.length === 1) {
-            return withProgress({ image: downloaded[0].image, imageUrl: downloaded[0].imageUrl }, progress, {
-                status: 'success'
-            });
-        }
-
-        const markdown = downloaded
-            .map((it, idx) => `![image_${idx + 1}](${it.image})`)
+        progress.mark('completed', 100, `${mediaLabel}生成完成（${downloaded.length} 个）`);
+        logger.info('适配器', `${mediaLabel}生成完成，成功下载 ${downloaded.length} 个`, meta);
+        const state = getPageState(page);
+        state.imageRounds = (state.imageRounds || 0) + 1;
+        const serviceMarkdown = buildServiceMarkdown(downloaded, 1);
+        const markdown = [rawLinksMarkdown, serviceMarkdown]
+            .filter(Boolean)
             .join('\n\n');
 
         return withProgress({
             text: markdown,
+            serviceText: serviceMarkdown,
             image: downloaded[0].image, // 兼容旧客户端（默认第一张）
             imageUrl: downloaded[0].imageUrl,
             images: downloaded.map(it => it.image),
-            imageUrls: downloaded.map(it => it.imageUrl).filter(Boolean)
-        }, progress, { status: 'success' });
+            imageUrls: mediaUrls,
+            serviceImageUrls: downloaded.map(it => it.imageUrl).filter(Boolean)
+        }, progress, { status: 'success', delivery: 'raw_links_then_service_media' });
 
     } catch (err) {
         if (await detectLoginLimit(page)) {
@@ -718,17 +1072,101 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
     } finally { }
 }
 
+function collectUrlsDeep(node, matcher, urls, seen) {
+    if (!node) return;
+    if (typeof node === 'string') {
+        const value = node.trim();
+        if (!value) return;
+        if (!/^https?:\/\//i.test(value)) return;
+        if (!matcher(value)) return;
+        if (seen.has(value)) return;
+        seen.add(value);
+        urls.push(value);
+        return;
+    }
+    if (Array.isArray(node)) {
+        for (const item of node) collectUrlsDeep(item, matcher, urls, seen);
+        return;
+    }
+    if (typeof node === 'object') {
+        for (const value of Object.values(node)) {
+            collectUrlsDeep(value, matcher, urls, seen);
+        }
+    }
+}
+
+function extractCreationMedia(payload, mode = 'image') {
+    if (!payload || !Array.isArray(payload.patch_op)) return [];
+
+    const urls = [];
+    const seen = new Set();
+    const urlMatcher = mode === 'video'
+        ? (u) => isLikelyVideoUrl(u)
+        : (u) => !isLikelyVideoUrl(u);
+
+    let latestCreations = null;
+    for (const op of payload.patch_op) {
+        const contentBlocks = op.patch_value?.content_block;
+        if (!Array.isArray(contentBlocks)) continue;
+
+        for (const block of contentBlocks) {
+            if (block.block_type !== 2074) continue;
+            const creations = block.content?.creation_block?.creations;
+            if (!Array.isArray(creations) || creations.length === 0) continue;
+            // 仅保留最新任务卡片，避免把历史会话图片都抓进来
+            latestCreations = creations;
+        }
+    }
+
+    if (!latestCreations) return [];
+
+    for (const creation of latestCreations) {
+        const directCandidates = mode === 'video'
+            ? [
+                creation.video?.video_ori_raw?.url,
+                creation.video?.video_raw?.url,
+                creation.video?.video_ori?.url,
+                creation.video?.url,
+                creation.video_url,
+                creation.url
+            ]
+            : [
+                creation.image?.image_ori_raw?.url,
+                creation.image?.image_raw?.url,
+                creation.image?.image_ori?.url,
+                creation.image?.url,
+                creation.image_url,
+                creation.url
+            ];
+
+        for (const candidate of directCandidates) {
+            if (typeof candidate !== 'string') continue;
+            const u = candidate.trim();
+            if (!/^https?:\/\//i.test(u)) continue;
+            if (!urlMatcher(u)) continue;
+            if (seen.has(u)) continue;
+            seen.add(u);
+            urls.push(u);
+        }
+
+        collectUrlsDeep(creation, urlMatcher, urls, seen);
+    }
+
+    return urls;
+}
+
 /**
- * 解析响应体，提取图片链接（兼容 SSE/JSON）
+ * 解析响应体，提取媒体链接（兼容 SSE/JSON）
  * @param {string} body - 响应体
- * @returns {string[]} 图片 URL 列表
+ * @param {'image'|'video'} mode - 媒体模式
+ * @returns {string[]} 媒体 URL 列表
  */
-function parseResponseForImageUrls(body) {
+function parseResponseForMediaUrls(body, mode = 'image') {
     if (!body || typeof body !== 'string') return [];
 
-    const urls = new Set();
-
     // 优先按 SSE 行解析
+    const merged = [];
+    const seen = new Set();
     const lines = body.split('\n');
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -737,8 +1175,14 @@ function parseResponseForImageUrls(body) {
             if (!dataLine || dataLine === '{}') continue;
             try {
                 const data = JSON.parse(dataLine);
-                for (const url of extractRawImages(data)) {
-                    urls.add(url);
+                const extracted = extractCreationMedia(data, mode);
+                if (extracted.length > 0) {
+                    for (const url of extracted) {
+                        if (!seen.has(url)) {
+                            seen.add(url);
+                            merged.push(url);
+                        }
+                    }
                 }
             } catch {
                 // ignore
@@ -746,77 +1190,34 @@ function parseResponseForImageUrls(body) {
         }
     }
 
+    if (merged.length > 0) {
+        return merged;
+    }
+
     // 回退：直接按 JSON 解析
-    if (urls.size === 0) {
-        try {
-            const data = JSON.parse(body);
-            for (const url of extractRawImages(data)) {
-                urls.add(url);
+    try {
+        const data = JSON.parse(body);
+        const extracted = extractCreationMedia(data, mode);
+        if (extracted.length > 0) {
+            return Array.from(new Set(extracted));
+        }
+    } catch {
+        // ignore
+    }
+
+    // 最后兜底：直接从文本中提取视频 URL
+    const urls = new Set();
+    if (mode === 'video') {
+        const matches = body.match(/https?:\/\/[^\s"']+/g) || [];
+        for (const m of matches) {
+            const clean = m.replace(/[),.;]+$/, '');
+            if (isLikelyVideoUrl(clean)) {
+                urls.add(clean);
             }
-        } catch {
-            // ignore
         }
     }
 
     return Array.from(urls);
-}
-
-/**
- * 从响应数据中提取原图 Raw 链接（支持多图）
- * @param {Object} payload - 解析后的 JSON 对象
- * @returns {string[]} - 图片 URL 列表
- */
-function extractRawImages(payload) {
-    if (!payload || !Array.isArray(payload.patch_op)) {
-        return [];
-    }
-
-    const urls = [];
-    const seen = new Set();
-
-    for (const op of payload.patch_op) {
-        const contentBlocks = op.patch_value?.content_block;
-
-        if (Array.isArray(contentBlocks)) {
-            for (const block of contentBlocks) {
-                // block_type 2074 代表生成卡片
-                if (block.block_type === 2074) {
-                    const creations = block.content?.creation_block?.creations;
-
-                    if (Array.isArray(creations)) {
-                        for (const creation of creations) {
-                            const candidates = [
-                                // 优先顺序：原图 raw > 其他降级链接
-                                creation.image?.image_ori_raw?.url,
-                                creation.image?.image_raw?.url,
-                                creation.image?.image_ori?.url,
-                                creation.image?.url,
-                                creation.image_url,
-                                creation?.url
-                            ];
-
-                            const validCandidates = candidates.filter(u => {
-                                if (typeof u !== 'string') return false;
-                                return /^https?:\/\//i.test(u);
-                            });
-
-                            if (validCandidates.length === 0) continue;
-
-                            // 避免同一张图同时返回「原图+带水印图」
-                            const nonWatermark = validCandidates.find(u => !/(watermark|water_mark|add_logo|wm=|logo=)/i.test(u));
-                            const picked = nonWatermark || validCandidates[0];
-
-                            if (!picked || seen.has(picked)) continue;
-                            seen.add(picked);
-                            urls.push(picked);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    return urls;
 }
 
 /**
@@ -833,11 +1234,13 @@ export const manifest = {
 
     models: [
         { id: 'ai-cutout', codeName: 'AI抠图', imagePolicy: 'required' },
-        { id: 'seedream5.0Lite', codeName: 'Seedream 5.0 Lite', imagePolicy: 'optional' },
-        { id: 'seedream-5.0-lite', codeName: 'Seedream 5.0 Lite', imagePolicy: 'optional' },
-        { id: 'seedream-4.5', codeName: 'Seedream 4.5', imagePolicy: 'optional' },
-        { id: 'seedream-4.0', codeName: 'Seedream 4.0', imagePolicy: 'optional' },
-        { id: 'seedream-3.0', codeName: 'Seedream 3.0', imagePolicy: 'optional' }
+        { id: 'seedream5.0Lite', codeName: 'Seedream 5.0 Lite', imagePolicy: 'optional', mode: 'image' },
+        { id: 'seedream-5.0-lite', codeName: 'Seedream 5.0 Lite', imagePolicy: 'optional', mode: 'image' },
+        { id: 'seedream-4.5', codeName: 'Seedream 4.5', imagePolicy: 'optional', mode: 'image' },
+        { id: 'seedream-4.0', codeName: 'Seedream 4.0', imagePolicy: 'optional', mode: 'image' },
+        { id: 'seedream-3.0', codeName: 'Seedream 3.0', imagePolicy: 'optional', mode: 'image' },
+        { id: 'seedance-2.0-fast', codeName: 'Seedance 2.0 Fast', imagePolicy: 'optional', mode: 'video' },
+        { id: 'doubao-video-seedance-2.0-fast', codeName: 'Seedance 2.0 Fast', imagePolicy: 'optional', mode: 'video' }
     ],
 
     navigationHandlers: [],

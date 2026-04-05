@@ -167,8 +167,19 @@ export function createQueueManager(queueConfig, callbacks) {
                 poolContext = await initBrowser(config);
             }
 
+            let hasStreamedPartialContent = false;
+            const pushPartialContent = async (content) => {
+                if (!isStreaming || res.writableEnded) return;
+                if (typeof content !== 'string' || content.length === 0) return;
+                hasStreamedPartialContent = true;
+                sendSse(res, buildChatCompletionChunk(content, modelName, null));
+            };
+
             // 调用核心生图逻辑 (通过 Pool 分发)
-            const result = await generate(poolContext, prompt, imagePaths, modelId, { id });
+            const result = await generate(poolContext, prompt, imagePaths, modelId, {
+                id,
+                onPartialContent: pushPartialContent
+            });
 
             // 清除心跳
             if (heartbeatInterval) clearInterval(heartbeatInterval);
@@ -204,10 +215,10 @@ export function createQueueManager(queueConfig, callbacks) {
             let finalContent = '';
             let reasoningContent = null;  // 思考过程内容
             let historyResponseText = '';  // 历史记录中存储的文本（不含 base64）
-            const hasMultipleImages = Array.isArray(result.images) && result.images.length > 1;
+            const hasTextContent = typeof result.text === 'string' && result.text.length > 0;
 
-            // 多图优先返回 markdown（包含所有图片），避免被单图分支截断
-            if (hasMultipleImages && result.text) {
+            // 优先返回 text（可同时承载“原始链接 + 服务图片”）
+            if (hasTextContent) {
                 finalContent = result.text;
                 historyResponseText = Array.isArray(result.imageUrls) && result.imageUrls.length > 0
                     ? result.imageUrls.join('\n')
@@ -258,8 +269,27 @@ export function createQueueManager(queueConfig, callbacks) {
             // 发送成功响应
             logger.info('服务器', '准备发送响应...', { id, isStreaming, contentLength: finalContent.length, hasReasoning: !!reasoningContent });
             if (isStreaming) {
-                const chunk = buildChatCompletionChunk(finalContent, modelName, 'stop', reasoningContent);
-                sendSse(res, chunk);
+                const finalChunkContent = (hasStreamedPartialContent
+                    && typeof result?.serviceText === 'string'
+                    && result.serviceText.length > 0)
+                    ? result.serviceText
+                    : finalContent;
+                const firstChunkContent = typeof result?.progressive?.first === 'string'
+                    ? result.progressive.first
+                    : '';
+                const restChunkContent = typeof result?.progressive?.rest === 'string'
+                    ? result.progressive.rest
+                    : '';
+                const hasProgressiveChunks = firstChunkContent.length > 0 && restChunkContent.length > 0;
+
+                if (!hasStreamedPartialContent && hasProgressiveChunks) {
+                    // 先推首图，再补全其余内容，提升首图到达速度
+                    sendSse(res, buildChatCompletionChunk(firstChunkContent, modelName, null));
+                    await new Promise(resolve => setTimeout(resolve, 80));
+                    sendSse(res, buildChatCompletionChunk(restChunkContent, modelName, 'stop'));
+                } else {
+                    sendSse(res, buildChatCompletionChunk(finalChunkContent, modelName, 'stop', reasoningContent));
+                }
                 sendSseDone(res);
                 logger.info('服务器', '流式响应已结束', { id });
             } else {

@@ -166,6 +166,29 @@ backend:
       #    - gemini-3-pro-image-preview
       #    - gemini-3-pro-image-preview-2k
       #    - gemini-2.5-flash-image-preview
+    # 豆包配置（图像/视频/超能模式）
+    doubao:
+      # 图像/视频任务超时时间（毫秒）
+      imageTimeoutMs: 420000
+      # 超能模式任务超时时间（毫秒）
+      # 若不配置，会自动使用 max(pool.waitTimeout, 900000)
+      superTaskTimeoutMs: 900000
+      conversation:
+        # 会话策略：always=每次新对话，auto=按轮数自动重置，never=复用当前会话
+        mode: auto
+        # 当 mode=auto 时，图片会话累计到该轮数后自动点击左侧“新对话”
+        imageResetAfterRounds: 3
+        # 单次最多下载候选媒体数量（防止误抓历史结果导致下载过慢）
+        maxImageCandidates: 1
+        maxVideoCandidates: 2
+        # 是否仅返回媒体链接（true 可显著降低返回延迟）
+        returnUrlOnly: false
+        # 是否仅下载首个候选（true 可显著降低返回延迟）
+        downloadFirstOnly: true
+    doubao_text:
+      conversation:
+        # 文本会话策略：always=每次新对话（推荐，避免上下文污染）
+        mode: always
     # 京东商品详情采集（需先通过 -login 完成账号登录）
     jd:
       concentratedMode:
