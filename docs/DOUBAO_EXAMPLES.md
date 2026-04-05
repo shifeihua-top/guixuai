@@ -1,6 +1,6 @@
 # dou包场景示例（文本、图片与视频生成）
 
-更新时间：2026-04-03
+更新时间：2026-04-05
 
 本示例面向已启用 `doubao_text` 与 `doubao` 适配器的场景，统一通过 OpenAI 兼容接口调用。
 
@@ -119,8 +119,36 @@ curl http://127.0.0.1:3000/v1/chat/completions \
 ## 6. 建议
 
 - 先调用 `GET /v1/models` 动态确认当前可用模型
-- 图像任务建议使用非流式，便于一次性获取结果
+- 图像任务若追求“最快可见结果”，建议使用流式模式
 - 若出现登录态问题，先通过 `GET /v1/cookies` 排查实例会话
+
+## 6.1 流式多图极速返回（推荐）
+
+`doubao` 生图在流式模式下支持“先全量原始链接，再补充服务处理图”：
+
+1. 第一阶段：快速返回本轮全部原始候选链接（`source_image_n` / `source_video_n`）
+2. 第二阶段：继续下载并返回服务侧可直接展示的媒体（`service_image_n` / `service_video_n`）
+
+调用示例：
+
+```bash
+curl -N http://127.0.0.1:3000/v1/chat/completions \
+  -H "Authorization: Bearer sk-change-me-to-your-secure-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "seedream-4.5",
+    "stream": true,
+    "messages": [
+      { "role": "user", "content": "生成4张同主题不同构图的客厅效果图" }
+    ]
+  }'
+```
+
+说明：
+
+- 首个 SSE chunk 通常先返回多条 `source_image_*` 链接，便于业务侧第一时间拿到完整原始结果
+- 后续 chunk 返回 `service_image_*`（data URL）用于直接预览
+- WebUI 接口测试预览已支持解析并展示上述全量返回格式
 
 ## 7. 视频生成示例（豆包图像模式切换“视频”）
 

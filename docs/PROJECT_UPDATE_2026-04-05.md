@@ -49,3 +49,11 @@
 2. 使用不同 token 分别请求 `/v1/chat/completions`。
 3. 在“请求记录”页面按 token 过滤，确认统计与记录一致。
 4. 在 OpenClaw 中粘贴一键复制的 MCP 配置并导入 `SKILL.md`，执行一次 `guixuai_image_edit`。
+
+## 6. 豆包多图返回链路优化（新增）
+
+- `doubao` 图像/视频流式响应支持“先原始链接、后服务媒体”的分阶段返回：
+  - 第一阶段返回 `source_image_n` / `source_video_n`
+  - 第二阶段返回 `service_image_n` / `service_video_n`
+- 适配器媒体链接提取逻辑升级为同轮全量累加，不再只保留最后一批候选。
+- WebUI 接口测试预览已支持解析 `source_*` / `service_*` 行并展示全部图片，避免仅显示首图。
