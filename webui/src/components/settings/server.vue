@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useSettingsStore } from '@/stores/settings';
 import { Modal, message } from 'ant-design-vue';
 import { CopyOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons-vue';
@@ -16,6 +16,7 @@ const formData = reactive({
     queueBuffer: 2,
     imageLimit: 5
 });
+const projectRoot = ref('');
 
 const enabledTokens = computed(() => (formData.authTokens || []).filter(t => t.enabled !== false && t.token));
 
@@ -115,6 +116,15 @@ function tokenMasked(token) {
     return `${token.slice(0, 4)}...${token.slice(-4)}`;
 }
 
+function getProjectPath() {
+    const cwd = String(projectRoot.value || '').trim();
+    return cwd || '<请替换为项目绝对路径>';
+}
+
+function hasDetectedProjectPath() {
+    return String(projectRoot.value || '').trim().length > 0;
+}
+
 const copyMcpConfig = () => {
     ensurePrimaryToken();
     if (!formData.authToken) {
@@ -122,11 +132,12 @@ const copyMcpConfig = () => {
         return;
     }
 
+    const projectPath = getProjectPath();
     const snippet = {
         mcpServers: {
             guixuai: {
                 command: 'node',
-                args: ['YOUR_WEBTOAPI_PATH/scripts/mcp/server.mjs'],
+                args: [`${projectPath}/scripts/mcp/server.mjs`],
                 env: {
                     GUIXUAI_BASE_URL: `${window.location.origin}`,
                     GUIXUAI_API_TOKEN: formData.authToken
@@ -135,7 +146,10 @@ const copyMcpConfig = () => {
         }
     };
 
-    copyText(JSON.stringify(snippet, null, 2), 'MCP 配置已复制');
+    copyText(
+        JSON.stringify(snippet, null, 2),
+        hasDetectedProjectPath() ? 'MCP 配置已复制（已自动填充项目路径）' : 'MCP 配置已复制（请先替换项目路径）'
+    );
 };
 
 const copyOpenClawSkillInstall = () => {
@@ -145,11 +159,15 @@ const copyOpenClawSkillInstall = () => {
         return;
     }
 
+    const projectPath = getProjectPath();
+    const mcpScriptPath = `${projectPath}/scripts/mcp/server.mjs`;
+    const skillPath = `${projectPath}/SKILL.md`;
+
     const mcpSnippet = {
         mcpServers: {
             guixuai: {
                 command: 'node',
-                args: ['YOUR_WEBTOAPI_PATH/scripts/mcp/server.mjs'],
+                args: [mcpScriptPath],
                 env: {
                     GUIXUAI_BASE_URL: `${window.location.origin}`,
                     GUIXUAI_API_TOKEN: formData.authToken
@@ -159,19 +177,31 @@ const copyOpenClawSkillInstall = () => {
     };
 
     const text = [
-        'OpenClaw 一键配置（MCP + Skill）',
+        'OpenClaw 一键配置（MCP + Skill，可直接使用）',
         '',
-        '[1] MCP 配置（JSON）',
+        '[0] Skill 是什么',
+        'Skill 是 OpenClaw 的“任务规则文件”，用于告诉模型何时调用 guixuai 的 MCP 工具。',
+        '',
+        '[1] MCP 配置（JSON，直接粘贴到 OpenClaw 的 MCP 配置）',
         JSON.stringify(mcpSnippet, null, 2),
         '',
-        '[2] Skill 文件路径',
-        'YOUR_WEBTOAPI_PATH/SKILL.md',
+        '[2] Skill 文件（直接导入这个文件）',
+        skillPath,
         '',
-        '[3] 安装步骤',
-        '在 OpenClaw -> Skills -> Import Local Skill',
-        '选择上面的 SKILL.md 后保存即可'
+        '[3] 安装步骤（推荐）',
+        'OpenClaw -> Skills -> Import Local Skill',
+        `选择: ${skillPath}`,
+        '导入后即可直接用自然语言调用 guixuai 工具。',
+        '',
+        '[4] 可选：复制到默认 Skill 目录（如果你偏好目录安装）',
+        `mkdir -p ~/.openclaw/workspace/skills/guixuai && cp "${skillPath}" ~/.openclaw/workspace/skills/guixuai/SKILL.md`
     ].join('\n');
-    copyText(text, 'OpenClaw 配置与 Skill 安装内容已复制');
+    copyText(
+        text,
+        hasDetectedProjectPath()
+            ? 'OpenClaw 配置与 Skill 安装说明已复制（路径已自动填充）'
+            : 'OpenClaw 配置与 Skill 安装说明已复制（请先替换项目路径）'
+    );
 };
 
 onMounted(async () => {
@@ -195,6 +225,18 @@ onMounted(async () => {
             enabled: true
         }];
         formData.primaryTokenId = 'primary';
+    }
+
+    try {
+        const statusRes = await fetch('/admin/status', { headers: settingsStore.getHeaders() });
+        if (statusRes.ok) {
+            const status = await statusRes.json();
+            if (typeof status?.cwd === 'string' && status.cwd.trim()) {
+                projectRoot.value = status.cwd.trim();
+            }
+        }
+    } catch {
+        // ignore
     }
 
     ensurePrimaryToken();
@@ -328,6 +370,10 @@ const handleSave = async () => {
             </div>
 
             <a-divider style="margin: 16px 0 12px;" />
+
+            <div style="font-size: 12px; color: #8c8c8c; margin-bottom: 8px;">
+                检测到项目路径：<code>{{ projectRoot || '未检测到（复制内容会提示手动替换）' }}</code>
+            </div>
 
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                 <a-button @click="copyMcpConfig">

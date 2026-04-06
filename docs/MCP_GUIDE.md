@@ -70,6 +70,7 @@ node scripts/mcp/server.mjs
 - `复制 OpenClaw 配置+Skill 安装`
 
 来快速完成 OpenClaw 的接入初始化。
+新版复制内容会自动填充服务实际项目路径（基于 `/admin/status` 的 `cwd`），无需手动替换 `YOUR_WEBTOAPI_PATH`。
 
 ## 5. 调用建议
 

@@ -75,6 +75,7 @@ export function getSystemStatus() {
         status: isXvfb ? 'xvfb' : (isHeadless ? 'headless' : 'normal'),
         version,
         systemVersion: `${os.type()} ${os.release()}`,
+        cwd: process.cwd(),
         uptime: Math.floor((Date.now() - startTime) / 1000),
         cpuUsage: getCpuUsage(),
         memoryUsage: {

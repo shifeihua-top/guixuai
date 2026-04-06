@@ -109,6 +109,10 @@ OpenClaw Skill 示例文件（可直接复用）：
 - [OpenClaw Skill 模板](SKILL.md)
 - `npm run mcp:smoke:image-output`：自动验证 MCP 图像 `output` 模式（inline/file/files）
 
+补充：
+- 在 WebUI「系统设置」点击 `复制 OpenClaw 配置+Skill 安装`，会自动带上当前项目绝对路径。
+- 复制内容中已包含 Skill 解释、导入路径和可选的一键复制命令，可直接照着执行。
+
 ## 文档导航
 
 - [文档总览](docs/README.md)
